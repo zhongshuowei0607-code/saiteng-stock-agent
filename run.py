@@ -20,11 +20,16 @@ def bootstrap():
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="个人 A 股每日分析 Agent")
-    parser.add_argument("command", choices=["init-db", "download", "analyze", "daily"], default="download", nargs="?")
+    parser.add_argument("command", choices=["init-db", "download", "analyze", "daily", "web"], default="web", nargs="?")
     parser.add_argument("code", nargs="?", default="603283.SH")
     parser.add_argument("--offline", action="store_true", help="仅使用缓存且禁用 LLM")
     args = parser.parse_args()
     settings, repository = bootstrap()
+    if args.command == "web":
+        import uvicorn
+        from app.main import create_app
+        uvicorn.run(create_app(settings, repository), host="127.0.0.1", port=8000)
+        return
     if args.command == "init-db":
         print("SQLite 已初始化")
         return
