@@ -1,0 +1,13 @@
+import json
+import os
+import httpx
+from .base import LLMProvider, AIReport
+from .prompts import SYSTEM
+class OllamaProvider(LLMProvider):
+    def __init__(self, model: str, timeout: int = 60):
+        self.model,self.timeout = model,timeout
+    def complete(self, facts: dict) -> str:
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(os.getenv("OLLAMA_URL","http://localhost:11434").rstrip("/")+"/api/chat",json={"model":self.model,"stream":False,"format":AIReport.model_json_schema(),"messages":[{"role":"system","content":SYSTEM},{"role":"user","content":json.dumps(facts,ensure_ascii=False,allow_nan=False)}]})
+            response.raise_for_status()
+            return response.json()["message"]["content"]

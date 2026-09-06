@@ -1,0 +1,18 @@
+import json
+import os
+import httpx
+from .base import LLMProvider
+from .prompts import SYSTEM
+class OpenAIProvider(LLMProvider):
+    key_name = "OPENAI_API_KEY"
+    default_url = "https://api.openai.com/v1"
+    def __init__(self, model: str, timeout: int = 60, base_url: str | None = None):
+        self.model,self.timeout,self.base_url = model,timeout,base_url or self.default_url
+    def complete(self, facts: dict) -> str:
+        key = os.getenv(self.key_name)
+        if not key:
+            raise ValueError("缺少模型 API Key")
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(self.base_url.rstrip("/")+"/chat/completions",headers={"Authorization":"Bearer "+key},json={"model":self.model,"messages":[{"role":"system","content":SYSTEM},{"role":"user","content":json.dumps(facts,ensure_ascii=False,allow_nan=False)}],"response_format":{"type":"json_object"}})
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]

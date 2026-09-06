@@ -20,12 +20,18 @@ def bootstrap():
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="个人 A 股每日分析 Agent")
-    parser.add_argument("command", choices=["init-db", "download"], default="download", nargs="?")
+    parser.add_argument("command", choices=["init-db", "download", "analyze", "daily"], default="download", nargs="?")
     parser.add_argument("code", nargs="?", default="603283.SH")
+    parser.add_argument("--offline", action="store_true", help="仅使用缓存且禁用 LLM")
     args = parser.parse_args()
     settings, repository = bootstrap()
     if args.command == "init-db":
         print("SQLite 已初始化")
+        return
+    if args.command in ("analyze", "daily"):
+        from app.analysis.stock_analyzer import StockAnalyzer
+        report = StockAnalyzer(settings, repository).analyze(args.code, refresh=not args.offline, use_llm=not args.offline)
+        print(json.dumps({"date":report["date"],"market":report["market"],"risk":report["risk"],"ai_status":report["ai"]["status"]},ensure_ascii=False,indent=2))
         return
     frame, warnings = MarketService([TushareProvider(), AKShareProvider()], repository).update(normalize_code(args.code))
     result = {"bars": len(frame), "latest": None if frame.empty else frame.iloc[-1]["date"], "warnings": warnings, "minimum_met": len(frame) >= 250}
