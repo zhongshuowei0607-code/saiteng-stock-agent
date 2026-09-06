@@ -23,7 +23,7 @@ def risk_score(facts: dict) -> dict:
     pnl=facts["portfolio"].get("pnl_pct")
     add("成本距离",max(0,-pnl)*4 if pnl is not None else None,8,"相对持仓成本浮亏")
     ind=facts.get("industry",{})
-    add("行业",75 if ind.get("relative")=="个股弱于行业" else 25 if ind.get("relative")=="个股强于行业" else 50 if ind.get("rows") else None,8,ind.get("relative","缺失"))
+    add("行业",75 if ind.get("relative")=="个股弱于行业" else 25 if ind.get("relative")=="个股强于行业" else 50 if ind.get("relative")=="基本同步" else None,8,ind.get("relative","缺失"))
     fundamental=facts.get("fundamental",{})
     add("基本面",min(100,30+25*len(fundamental.get("warnings",[]))) if fundamental.get("rows") else None,10,"财务异常规则")
     for name,key in (("新闻","news"),("公告","announcements")):

@@ -43,6 +43,14 @@ class StockAnalyzer:
         portfolio=position.valuation(market.get("close"))
         stable=stabilization(technical)
         report={"date":date,"generated_at":datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),"stock":stock,"market":market,"technical":{} if technical.empty else clean(technical.iloc[-1].to_dict()),"trend":trends(technical),"portfolio":portfolio,"levels":levels(technical),"stabilization":stable,"news":[],"announcements":[],"industry":{},"fundamental":{},"warnings":warnings}
+        if refresh and not frame.empty:
+            from app.data.enrichment import enrich
+            extra=enrich(code,frame,self.settings.config["peers"],self.repository)
+            for key in ("news","announcements","fundamental","industry"):
+                report[key]=extra[key]
+            warnings.extend(extra["errors"])
+            for key in ("fundamental","industry"):
+                warnings.extend(report[key].get("errors",[]))
         report["watch_zone"]=watch_state(market.get("close"),stable,self.settings.strategy)
         report["risk"]=risk_score(report)
         previous=self.repository.reports(code,before=date)
@@ -52,7 +60,13 @@ class StockAnalyzer:
         else:
             report["comparison"]={"note":"尚无前一日报，无法比较。"}
         report=clean(report)
-        report["ai"]=explain(make_provider(self.settings.config["llm"]) if use_llm else None,report)
+        # 提示词只携带抓到的事件；原文在数据库完整保留，模型输入限长。
+        prompt_facts={**report}
+        for kind in ("news","announcements"):
+            prompt_facts[kind]=[{**row,"raw_text":row.get("raw_text", "")[:12000],"prompt_text_truncated":len(row.get("raw_text", ""))>12000} for row in report[kind]]
+        report["ai"]=explain(make_provider(self.settings.config["llm"]) if use_llm else None,prompt_facts)
+        if any(e.get("stop_adding_observation") for e in report["ai"].get("events",[])):
+            report["watch_zone"]=watch_state(market.get("close"),stable,self.settings.strategy,event_stop=True)
         render_reports(report,self.settings.path("reports"))
         self.repository.save_report(code,date,report)
         logging.info("分析完成 code=%s risk=%s duration=%.2fs",code,report["risk"]["score"],time.monotonic()-started)
