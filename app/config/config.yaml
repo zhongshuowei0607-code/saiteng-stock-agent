@@ -1,0 +1,22 @@
+llm:
+  provider: ollama
+  model: qwen3
+  timeout: 60
+scheduler:
+  enabled: true
+  hour: 17
+  minute: 30
+stocks:
+  - code: 603283.SH
+    name: 赛腾股份
+market:
+  history_days: 800
+  minimum_bars: 250
+  timeout: 25
+peers:
+  688097.SH: 博众精工
+  002957.SZ: 科瑞技术
+  301312.SZ: 智立方
+  300545.SZ: 联得装备
+  301360.SZ: 荣旗科技
+  688003.SH: 天准科技

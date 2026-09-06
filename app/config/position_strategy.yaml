@@ -1,0 +1,9 @@
+# 左闭右开，避免边界同时命中；仅为用户配置的观察区间。
+zones:
+  - {min: null, max: 40.5, label: 高风险区}
+  - {min: 40.5, max: 42, label: 第二加仓观察区}
+  - {min: 42, max: 43, label: 第一加仓观察区}
+  - {min: 43, max: 46, label: 持仓观察}
+  - {min: 46, max: 48, label: 反弹观察区}
+  - {min: 48, max: null, label: 反弹减仓观察区}
+confirmation_score: 7
