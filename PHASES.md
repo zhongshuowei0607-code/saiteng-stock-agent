@@ -36,3 +36,10 @@
 - 实际启动 `python run.py`，本地首页 HTTP 200。
 - ECharts 静态资源本地化，包含 K 线/均线、成交量、MACD、持仓/企稳/风险、新闻公告、财务、同行与历史日报。
 - API 测试覆盖全部指定 GET、同源写请求校验、并发分析冲突、非法股票和报告路径。
+
+## Phase 6 — 交易日调度
+
+- 累计测试：32 passed。
+- APScheduler 使用 Asia/Shanghai 17:30、max_instances=1、合并错过触发；应用关闭时停止调度。
+- Tushare 日历优先，AKShare 回退，持久化已验证覆盖范围；周末和已知节假日跳过，覆盖之外且抓取失败返回未知并跳过。
+- `python run.py daily` 使用同一交易日判断；`analyze` 为显式手动运行。

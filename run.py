@@ -33,6 +33,13 @@ def main() -> None:
     if args.command == "init-db":
         print("SQLite 已初始化")
         return
+    if args.command == "daily" and not args.offline:
+        from app.scheduler.jobs import TradingCalendar, daily_job
+        from app.analysis.stock_analyzer import StockAnalyzer
+        from app.analysis.runner import AnalysisRunner
+        success=daily_job(AnalysisRunner(StockAnalyzer(settings,repository)),TradingCalendar(settings.path("data/trading_calendar.json")))
+        print("交易日任务已完成" if success else "任务未执行或失败，请查看日志；可用 analyze 显式手动分析")
+        return
     if args.command in ("analyze", "daily"):
         from app.analysis.stock_analyzer import StockAnalyzer
         report = StockAnalyzer(settings, repository).analyze(args.code, refresh=not args.offline, use_llm=not args.offline)

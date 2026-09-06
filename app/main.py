@@ -22,7 +22,14 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         # 无报告时先建立缺失/缓存报告，保证首页即时可用。
         if not repository.reports():
             analyzer.analyze(refresh=False,use_llm=False)
+        scheduler=None
+        if settings.config["scheduler"].get("enabled",True):
+            from app.scheduler.jobs import TradingCalendar, build_scheduler
+            scheduler=build_scheduler(app.state.runner,TradingCalendar(settings.path("data/trading_calendar.json")),settings.config["scheduler"])
+            scheduler.start()
         yield
+        if scheduler:
+            scheduler.shutdown(wait=False)
     app=FastAPI(title="赛腾股份每日分析 Agent",lifespan=lifespan)
     app.state.settings=settings;app.state.repository=repository
     app.state.runner=AnalysisRunner(analyzer)
