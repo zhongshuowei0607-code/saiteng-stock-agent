@@ -5,3 +5,6 @@ __pycache__/
 data/*.db*
 logs/*.log
 reports/*/
+
+data/*.lock
+data/trading_calendar.json

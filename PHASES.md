@@ -43,3 +43,22 @@
 - APScheduler 使用 Asia/Shanghai 17:30、max_instances=1、合并错过触发；应用关闭时停止调度。
 - Tushare 日历优先，AKShare 回退，持久化已验证覆盖范围；周末和已知节假日跳过，覆盖之外且抓取失败返回未知并跳过。
 - `python run.py daily` 使用同一交易日判断；`analyze` 为显式手动运行。
+
+## Phase 7 — 故障处理、回归测试与交付
+
+- 最终累计 `pytest -q`：47 passed，2 条上游 Starlette / AnyIO 弃用提示。
+- Ruff 未使用名称/变量检查通过；所有 Python 源码统一格式化，公开函数与构造函数补充类型标注。
+- Dashboard JavaScript 通过 Node `--check`；最终服务首页、持仓/技术指标/日报列表/状态 API、HTML 日报、本地 ECharts 共 7 项真实 HTTP 检查均为 200。
+- 最终真实数据：533 根日 K（最新 2026-09-04）、15 条新闻、11 条公告、3 条官方公告 PDF 原文、12 期财务。生成 2026-09-07 Markdown/HTML；页面与 SQLite 已核对。
+- 当前持仓 400 股，成本 49 元，最大 1000 股，剩余 600 股。
+- 硬超时、有限重试、跨进程锁、原子写文件、配置区间校验、HTML 活动内容过滤、LLM 新增数值校验、缓存补充资料保留、跨日日志已覆盖。
+- 增加 Tushare moneyflow 因子和单位测试；无 Token 时保持缺失。
+- 已提供 Windows start.bat、Dockerfile / compose.yaml、精确依赖快照和完整运行说明。
+
+### 实际限制与待用户环境验证
+
+- 未提供 Tushare Token；Tushare 真实行情/估值/财务/资金流权限尚未验证，接口映射与降级经测试。
+- 未配置可用 OpenAI / DeepSeek Key 或 Ollama 模型；三种请求协议通过隔离测试，真实模型解释显示“AI 未生成”。
+- 东方财富行情接口在后续联调间歇出现 ProxyError。个股使用已下载真实缓存；六只同行本次未取得同日行情，因此不输出行业强弱结论。
+- 运行验证环境 macOS + Python 3.11.15；Windows 与 Docker/NAS 文件已提供，当前无 Docker 命令，未声称完成这些平台实机验证。
+- 不复权指标、标题事件初筛、日线成交密集区、候选同行池与启发式风险评分均非经过回测验证的交易策略。

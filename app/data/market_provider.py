@@ -4,7 +4,26 @@ from zoneinfo import ZoneInfo
 import logging
 import re
 import pandas as pd
-FIELDS = ["date", "open", "close", "high", "low", "pre_close", "change", "pct_change", "volume", "amount", "turnover", "pe", "pb", "total_mv", "circ_mv"]
+from app.database.repository import Repository
+
+FIELDS = [
+    "date",
+    "open",
+    "close",
+    "high",
+    "low",
+    "pre_close",
+    "change",
+    "pct_change",
+    "volume",
+    "amount",
+    "turnover",
+    "pe",
+    "pb",
+    "total_mv",
+    "circ_mv",
+]
+
 
 def normalize_code(code: str) -> str:
     value = code.strip().upper()
@@ -17,11 +36,13 @@ def normalize_code(code: str) -> str:
         raise ValueError("股票代码与交易所不匹配")
     return f"{number}.{exchange}"
 
+
 def date_range(days: int = 800) -> tuple[str, str]:
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
     # 收盘前不纳入可能尚未完成的当日 K 线。
     end = now.date() if now.hour >= 15 else now.date() - timedelta(days=1)
     return (end - timedelta(days=days)).strftime("%Y%m%d"), end.strftime("%Y%m%d")
+
 
 def validate(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
@@ -30,21 +51,36 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
     frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
     frame = frame.sort_values("date").drop_duplicates("date", keep="last")
     for key in FIELDS[1:]:
-        frame[key] = pd.to_numeric(frame[key], errors="coerce") if key in frame else float("nan")
+        frame[key] = (
+            pd.to_numeric(frame[key], errors="coerce") if key in frame else float("nan")
+        )
     required = frame[["open", "close", "high", "low", "volume", "amount"]]
-    if required.isna().any().any() or (frame[["open", "close", "high", "low"]] <= 0).any().any():
+    if (
+        required.isna().any().any()
+        or (frame[["open", "close", "high", "low"]] <= 0).any().any()
+    ):
         raise ValueError("行情含无效价格或成交数据")
-    if ((frame.high < frame[["open", "close", "low"]].max(axis=1)) | (frame.low > frame[["open", "close", "high"]].min(axis=1))).any():
+    if (
+        (frame.high < frame[["open", "close", "low"]].max(axis=1))
+        | (frame.low > frame[["open", "close", "high"]].min(axis=1))
+    ).any():
         raise ValueError("OHLC 关系无效")
+    if (frame[["volume", "amount"]] < 0).any().any():
+        raise ValueError("成交量或成交额为负")
     return frame.reset_index(drop=True)
+
 
 class MarketDataProvider(ABC):
     @abstractmethod
     def history(self, code: str, start: str, end: str) -> pd.DataFrame: ...
 
+
 class MarketService:
-    def __init__(self, providers: list[MarketDataProvider], repository):
+    def __init__(
+        self, providers: list[MarketDataProvider], repository: Repository
+    ) -> None:
         self.providers, self.repository = providers, repository
+
     def update(self, code: str, days: int = 800) -> tuple[pd.DataFrame, list[str]]:
         errors = []
         for provider in self.providers:
@@ -53,7 +89,7 @@ class MarketService:
                 self.repository.save_bars(code, frame)
                 return frame, errors
             except Exception as exc:
-                message = f"{type(provider).__name__} 获取失败：{type(exc).__name__}"
+                message = f"{getattr(provider, 'source', type(provider).__name__)} 获取失败：{type(exc).__name__}"
                 logging.warning(message)
                 errors.append(message)
         cached = self.repository.history(code)
