@@ -18,13 +18,16 @@ class Settings(BaseModel):
 
 def load_settings(root: Path = ROOT) -> Settings:
     load_dotenv(root / ".env")
+    config_dir = Path(os.getenv("STOCK_AGENT_CONFIG_DIR", root / "config"))
+    if not (config_dir / "config.yaml").exists():
+        config_dir = root / "app/config"
     config = yaml.safe_load(
-        (root / "app/config/config.yaml").read_text(encoding="utf-8")
+        (config_dir / "config.yaml").read_text(encoding="utf-8")
     )
     for key in ("provider", "model"):
         config["llm"][key] = os.getenv("LLM_" + key.upper(), config["llm"][key])
     strategy = yaml.safe_load(
-        (root / "app/config/position_strategy.yaml").read_text(encoding="utf-8")
+        (config_dir / "position_strategy.yaml").read_text(encoding="utf-8")
     )
     if config["llm"]["provider"] not in ("openai", "deepseek", "ollama", "disabled"):
         raise ValueError("llm.provider 必须是 openai/deepseek/ollama/disabled")
@@ -47,6 +50,6 @@ def load_settings(root: Path = ROOT) -> Settings:
             raise ValueError("观察区间存在重叠或缺口")
     if not 0 <= strategy["confirmation_score"] <= 10:
         raise ValueError("企稳阈值必须在0到10之间")
-    for folder in ("data", "reports", "logs"):
+    for folder in ("data", "reports", "logs", "backup"):
         (root / folder).mkdir(parents=True, exist_ok=True)
     return Settings(root=root, config=config, strategy=strategy)

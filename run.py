@@ -2,7 +2,8 @@
 
 import argparse
 import json
-from app.config.settings import Settings, load_settings
+from app.config.settings import Settings
+from app.bootstrap import bootstrap as initialize
 from app.database.db import create_db
 from app.database.repository import Repository
 from app.data.market_provider import MarketService, normalize_code
@@ -10,11 +11,10 @@ from app.data.remote_market import providers
 
 
 def bootstrap() -> tuple[Settings, Repository]:
-    settings = load_settings()
+    settings, repository = initialize()
     from app.config.logging_config import configure_logging
 
     configure_logging(settings.root)
-    repository = Repository(create_db(settings.path("data/stock_agent.db")))
     return settings, repository
 
 
@@ -22,7 +22,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="个人 A 股每日分析 Agent")
     parser.add_argument(
         "command",
-        choices=["init-db", "download", "analyze", "daily", "web"],
+        choices=["init-db", "download", "analyze", "daily", "web", "server", "migrate", "test-bark", "test-email", "backup"],
         default="web",
         nargs="?",
     )
@@ -30,11 +30,15 @@ def main() -> None:
     parser.add_argument("--offline", action="store_true", help="仅使用缓存且禁用 LLM")
     args = parser.parse_args()
     settings, repository = bootstrap()
-    if args.command == "web":
+    if args.command in ("web", "server"):
         import uvicorn
         from app.main import create_app
 
-        uvicorn.run(create_app(settings, repository), host="127.0.0.1", port=8000)
+        host = "0.0.0.0" if args.command == "server" else "127.0.0.1"
+        uvicorn.run(create_app(settings, repository), host=host, port=8000, workers=1)
+        return
+    if args.command == "migrate":
+        print("数据库迁移完成")
         return
     if args.command == "init-db":
         print("SQLite 已初始化")

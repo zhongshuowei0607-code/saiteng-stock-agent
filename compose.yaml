@@ -1,12 +1,33 @@
 services:
   stock-agent:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: stock-agent
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      STOCK_AGENT_CONFIG_DIR: /app/config
     ports:
-      - "127.0.0.1:8000:8000"
-    env_file: .env
+      - "${WEB_PORT:-18000}:8000"
     volumes:
       - ./data:/app/data
       - ./reports:/app/reports
       - ./logs:/app/logs
-      - ./app/config:/app/app/config:ro
-    restart: unless-stopped
+      - ./backup:/app/backup
+      - ./config:/app/config
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
