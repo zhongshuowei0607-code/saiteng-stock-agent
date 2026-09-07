@@ -137,7 +137,12 @@ def resources(request: Request) -> dict:
 
 @router.get("/api/status")
 def status(request: Request) -> dict:
-    return request.app.state.runner.status()
+    return {"analysis": request.app.state.runner.status(), "monitor": request.app.state.monitor.status() if hasattr(request.app.state, "monitor") else {}}
+
+
+@router.get("/api/triggers")
+def triggers(request: Request) -> list[dict]:
+    return request.app.state.repository.trigger_events()
 
 
 @router.post("/api/stock/{code}/analyze", status_code=202)

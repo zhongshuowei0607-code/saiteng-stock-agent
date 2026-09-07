@@ -1,7 +1,7 @@
 import json
 import hashlib
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.engine import Engine
 from .models import MarketBar, Report, Document, Fundamental
@@ -69,3 +69,21 @@ class Repository:
                 session.merge(
                     Fundamental(code=code, date=row["end_date"], payload=clean(row))
                 )
+
+    def trigger_state(self, signal: str) -> dict | None:
+        with self.engine.connect() as connection:
+            row = connection.execute(text("SELECT signal,state,last_triggered,updated_at FROM trigger_states WHERE signal=:s"), {"s": signal}).mappings().first()
+        return dict(row) if row else None
+
+    def save_trigger_state(self, signal: str, state: str, last_triggered: str | None, updated_at: str) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(text("INSERT INTO trigger_states(signal,state,last_triggered,updated_at) VALUES(:s,:state,:last,:now) ON CONFLICT(signal) DO UPDATE SET state=:state,last_triggered=:last,updated_at=:now"), {"s": signal, "state": state, "last": last_triggered, "now": updated_at})
+
+    def add_trigger_event(self, signal: str, level: str, title: str, message: str, created_at: str) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(text("INSERT INTO trigger_events(signal,level,title,message,created_at) VALUES(:s,:l,:t,:m,:c)"), {"s": signal, "l": level, "t": title, "m": message, "c": created_at})
+
+    def trigger_events(self, limit: int = 50) -> list[dict]:
+        with self.engine.connect() as connection:
+            rows = connection.execute(text("SELECT signal,level,title,message,created_at FROM trigger_events ORDER BY id DESC LIMIT :limit"), {"limit": limit}).mappings().all()
+        return [dict(row) for row in rows]
