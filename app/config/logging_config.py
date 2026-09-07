@@ -1,47 +1,36 @@
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from __future__ import annotations
+
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import logging
 
-
-class DailyFileHandler(logging.FileHandler):
-    """长驻 Web 跨零点时也按上海日期切换日志文件。"""
-
-    def __init__(self, directory: Path) -> None:
-        self.directory = directory
-        super().__init__(self.filename(), encoding="utf-8")
-
-    def filename(self) -> Path:
-        return (
-            self.directory
-            / f"stock_agent_{datetime.now(ZoneInfo('Asia/Shanghai')):%Y%m%d}.log"
-        )
-
-    def emit(self, record: logging.LogRecord) -> None:
-        filename = str(self.filename().resolve())
-        if self.baseFilename != filename:
-            if self.stream:
-                self.stream.close()
-            self.baseFilename = filename
-            self.stream = self._open()
-        super().emit(record)
+LOG_FILES = ("app", "market", "monitor", "notification", "error")
 
 
 def configure_logging(root: Path) -> None:
     directory = root / "logs"
     directory.mkdir(parents=True, exist_ok=True)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    if any(
-        isinstance(h, DailyFileHandler) and h.directory == directory
-        for h in logger.handlers
-    ):
-        return
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    handler = DailyFileHandler(directory)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    app_path = (directory / "app.log").resolve()
+    if not any(isinstance(h, RotatingFileHandler) and Path(h.baseFilename) == app_path for h in logger.handlers):
+        handler = RotatingFileHandler(app_path, maxBytes=10 * 1024 * 1024, backupCount=10, encoding="utf-8")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        errors = RotatingFileHandler(directory / "error.log", maxBytes=10 * 1024 * 1024, backupCount=10, encoding="utf-8")
+        errors.setLevel(logging.ERROR)
+        errors.setFormatter(formatter)
+        logger.addHandler(errors)
     if not any(type(h) is logging.StreamHandler for h in logger.handlers):
         stream = logging.StreamHandler()
         stream.setFormatter(formatter)
         logger.addHandler(stream)
+    for name in ("market", "monitor", "notification"):
+        named = logging.getLogger(name)
+        named.setLevel(logging.INFO)
+        path = (directory / f"{name}.log").resolve()
+        if not any(isinstance(h, RotatingFileHandler) and Path(h.baseFilename) == path for h in named.handlers):
+            handler = RotatingFileHandler(path, maxBytes=10 * 1024 * 1024, backupCount=10, encoding="utf-8")
+            handler.setFormatter(formatter)
+            named.addHandler(handler)

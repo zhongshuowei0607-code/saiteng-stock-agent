@@ -6,6 +6,25 @@ scheduler:
   enabled: true
   hour: 17
   minute: 30
+  market_update_hour: 15
+  market_update_minute: 10
+  backup_hour: 2
+  backup_minute: 0
+monitor:
+  enabled: true
+  interval_seconds: 180
+  cooldown_minutes: 30
+  market_max_concurrency: 2
+  max_bars_in_memory: 800
+risk:
+  warning_threshold: 65
+  critical_threshold: 85
+storage:
+  backup_retention_days: 30
+  report_retention_days: 365
+  archive_old_reports: false
+runtime:
+  max_llm_concurrency: 1
 stocks:
   - code: 603283.SH
     name: 赛腾股份

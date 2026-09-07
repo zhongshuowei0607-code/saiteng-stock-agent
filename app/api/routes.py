@@ -5,6 +5,7 @@ from app.data.market_provider import normalize_code
 from app.database.repository import clean
 from app.indicators.technical import calculate
 from app.portfolio.portfolio_service import load_position
+from app.system.resources import resource_snapshot
 
 router = APIRouter()
 
@@ -33,16 +34,18 @@ def stock(code: str, request: Request) -> dict:
 
 @router.get("/api/stock/{code}/history")
 def history(code: str, request: Request) -> list[dict]:
+    maximum = request.app.state.settings.config.get("monitor", {}).get("max_bars_in_memory", 800)
     return clean(
-        request.app.state.repository.history(check(code)).tail(800).to_dict("records")
+        request.app.state.repository.history(check(code)).tail(maximum).to_dict("records")
     )
 
 
 @router.get("/api/stock/{code}/technical")
 def technical(code: str, request: Request) -> list[dict]:
+    maximum = request.app.state.settings.config.get("monitor", {}).get("max_bars_in_memory", 800)
     return clean(
         calculate(request.app.state.repository.history(check(code)))
-        .tail(800)
+        .tail(maximum)
         .to_dict("records")
     )
 
@@ -70,8 +73,13 @@ def reports(request: Request) -> list[dict]:
             "market_date": r.get("market", {}).get("date"),
             "url": f"/reports/603283/{r['date']}.html",
         }
-        for r in request.app.state.repository.reports()
+        for r in request.app.state.repository.reports(limit=100)
     ]
+
+
+@router.get("/api/system/resources")
+def resources(request: Request) -> dict:
+    return resource_snapshot(request.app.state.settings.root)
 
 
 @router.get("/api/status")

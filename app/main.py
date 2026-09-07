@@ -81,7 +81,7 @@ def create_app(
 
     @app.get("/")
     def dashboard(request: Request) -> Response:
-        rows = repository.reports()
+        rows = repository.reports(limit=30)
         report = rows[0] if rows else None
         portfolio = (
             report["portfolio"]

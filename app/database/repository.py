@@ -34,14 +34,17 @@ class Repository:
         with Session(self.engine) as session, session.begin():
             session.merge(Report(code=code, date=date, payload=clean(payload)))
 
-    def reports(self, code: str = "603283.SH", before: str | None = None) -> list[dict]:
+    def reports(self, code: str = "603283.SH", before: str | None = None, limit: int | None = None) -> list[dict]:
         query = select(Report).where(Report.code == code)
         if before:
             query = query.where(Report.date < before)
+        query = query.order_by(Report.date.desc())
+        if limit:
+            query = query.limit(limit)
         with Session(self.engine) as session:
             return [
                 r.payload
-                for r in session.scalars(query.order_by(Report.date.desc())).all()
+                for r in session.scalars(query).all()
             ]
 
     def save_documents(self, code: str, kind: str, rows: list[dict]) -> None:
