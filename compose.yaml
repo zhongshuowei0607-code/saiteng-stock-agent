@@ -12,6 +12,8 @@ services:
     environment:
       TZ: Asia/Shanghai
       STOCK_AGENT_CONFIG_DIR: /app/config
+      STOCK_AGENT_DEPLOYMENT: synology
+      WEB_AUTH_REQUIRED: "true"
     ports:
       - "${WEB_PORT:-18000}:8000"
     volumes:

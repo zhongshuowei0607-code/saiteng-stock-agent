@@ -11,16 +11,21 @@ class Position(BaseModel):
     code: str
     max_shares: int = Field(gt=0)
     buys: list[Buy]
+    sells: list[Buy] = Field(default_factory=list)
 
     def valuation(self, price: float | None) -> dict:
-        shares = sum(b.shares for b in self.buys)
-        cost = sum((b.price * b.shares for b in self.buys), Decimal(0))
+        bought = sum(b.shares for b in self.buys)
+        sold = sum(s.shares for s in self.sells)
+        shares = max(0, bought - sold)
+        gross_cost = sum((b.price * b.shares for b in self.buys), Decimal(0))
+        average = gross_cost / bought if bought else Decimal(0)
+        cost = average * shares
         market = None if price is None else Decimal(str(price)) * shares
         pnl = None if market is None else market - cost
         return {
             "shares": shares,
             "total_cost": float(cost),
-            "average_cost": float(cost / shares) if shares else 0,
+            "average_cost": float(average) if shares else 0,
             "market_value": float(market) if market is not None else None,
             "pnl": float(pnl) if pnl is not None else None,
             "pnl_pct": float(pnl / cost * 100) if pnl is not None and cost else None,

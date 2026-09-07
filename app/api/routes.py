@@ -1,5 +1,7 @@
 from datetime import date
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
+from pydantic import BaseModel, Field
+import json
 from fastapi.responses import FileResponse
 from app.data.market_provider import normalize_code
 from app.database.repository import clean
@@ -8,6 +10,47 @@ from app.portfolio.portfolio_service import load_position
 from app.system.resources import resource_snapshot
 
 router = APIRouter()
+
+
+class SetupPayload(BaseModel):
+    tushare_token: str = ""
+    llm_provider: str = "disabled"
+    llm_model: str = "deepseek-chat"
+    deepseek_api_key: str = ""
+    openai_api_key: str = ""
+    ollama_url: str = ""
+    bark_enabled: bool = False
+    bark_device_key: str = ""
+    email_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_use_ssl: bool = True
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_to: str = ""
+    web_username: str = "admin"
+    web_password: str = Field(min_length=10)
+    max_shares: int = Field(default=1000, gt=0)
+    buys: list[dict] = Field(default_factory=lambda: [{"price": 50, "shares": 200}, {"price": 48, "shares": 200}])
+    sells: list[dict] = Field(default_factory=list)
+
+
+@router.post("/api/setup")
+def save_setup(payload: SetupPayload, request: Request) -> dict:
+    if payload.llm_provider not in ("disabled", "openai", "deepseek", "ollama"):
+        raise HTTPException(400, "LLM Provider 无效")
+    store = request.app.state.secure_settings
+    mapping = {"TUSHARE_TOKEN": payload.tushare_token, "LLM_PROVIDER": payload.llm_provider, "LLM_MODEL": payload.llm_model, "DEEPSEEK_API_KEY": payload.deepseek_api_key, "OPENAI_API_KEY": payload.openai_api_key, "OLLAMA_URL": payload.ollama_url, "BARK_ENABLED": payload.bark_enabled, "BARK_DEVICE_KEY": payload.bark_device_key, "EMAIL_ENABLED": payload.email_enabled, "SMTP_HOST": payload.smtp_host, "SMTP_PORT": payload.smtp_port, "SMTP_USE_SSL": payload.smtp_use_ssl, "SMTP_USER": payload.smtp_user, "SMTP_PASSWORD": payload.smtp_password, "SMTP_FROM": payload.smtp_from, "SMTP_TO": payload.smtp_to, "WEB_USERNAME": payload.web_username}
+    for key, value in mapping.items():
+        if value not in ("", None) or key.endswith("ENABLED"):
+            store.set(key, value)
+    store.set_password(payload.web_password)
+    position = {"code": "603283.SH", "max_shares": payload.max_shares, "buys": payload.buys, "sells": payload.sells}
+    request.app.state.settings.path("data/portfolio.json").write_text(json.dumps(position, ensure_ascii=False, indent=2), encoding="utf-8")
+    store.set("SETUP_COMPLETE", "true")
+    store.apply_environment()
+    return {"status": "configured", "redirect": "/"}
 
 
 def check(code: str) -> str:

@@ -14,6 +14,8 @@ from app.analysis.stock_analyzer import StockAnalyzer
 from app.analysis.runner import AnalysisRunner
 from app.portfolio.portfolio_service import load_position
 from app.api.routes import router
+from app.config.secure_store import SecureSettings
+from app.security import authenticate
 
 
 def create_app(
@@ -51,6 +53,7 @@ def create_app(
     app.state.settings = settings
     app.state.repository = repository
     app.state.runner = AnalysisRunner(analyzer)
+    app.state.secure_settings = SecureSettings(repository.engine, settings.root)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"],
@@ -60,6 +63,9 @@ def create_app(
     async def log_request(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
+        denied = authenticate(request)
+        if denied is not None:
+            return denied
         started = time.monotonic()
         response = await call_next(request)
         logging.info(
@@ -78,6 +84,15 @@ def create_app(
         "/static", StaticFiles(directory=settings.path("app/web/static")), name="static"
     )
     templates = Jinja2Templates(directory=settings.path("app/web/templates"))
+
+    @app.get("/setup")
+    def setup_page(request: Request) -> Response:
+        store = app.state.secure_settings
+        return templates.TemplateResponse(request=request, name="setup.html", context={"editing": store.is_complete(), "masked": store.masked})
+
+    @app.get("/settings")
+    def settings_page(request: Request) -> Response:
+        return templates.TemplateResponse(request=request, name="setup.html", context={"editing": True, "masked": app.state.secure_settings.masked})
 
     @app.get("/")
     def dashboard(request: Request) -> Response:
