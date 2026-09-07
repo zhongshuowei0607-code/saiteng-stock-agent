@@ -7,6 +7,7 @@ logs/*.log
 reports/*/
 
 data/*.lock
+data/.settings.key
 data/trading_calendar.json
 
 .venv.backup-*/

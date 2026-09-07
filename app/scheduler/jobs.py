@@ -101,6 +101,9 @@ def market_update_job(repository, calendar: TradingCalendar, day: date | None = 
 
 def maintenance_job(root: Path, storage: dict) -> str:
     result = backup_database(root / "data/stock_agent.db", root / "backup", retention_days=storage.get("backup_retention_days", 30))
+    settings_db = root / "data/settings.db"
+    if settings_db.exists():
+        backup_database(settings_db, root / "backup", retention_days=storage.get("backup_retention_days", 30), prefix="settings")
     clean_reports(root / "reports", storage.get("report_retention_days", 365), storage.get("archive_old_reports", False))
     return str(result)
 

@@ -14,6 +14,7 @@ def prepared(tmp_path):
 
 
 def test_setup_encrypts_secrets_and_enables_auth(tmp_path, monkeypatch):
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
     monkeypatch.setenv("WEB_AUTH_REQUIRED", "true")
     settings, repository = prepared(tmp_path)
     app = create_app(settings, repository)
@@ -25,7 +26,9 @@ def test_setup_encrypts_secrets_and_enables_auth(tmp_path, monkeypatch):
         assert client.get("/").status_code == 401
         auth = base64.b64encode(b"owner:a-secure-password").decode()
         assert client.get("/", headers={"Authorization": "Basic " + auth}).status_code == 200
-    database_bytes = (tmp_path / "data/stock_agent.db").read_bytes()
+        health = client.get("/api/health").json()
+        assert health["database"] == "ok" and health["version"] == "1.0.0"
+    database_bytes = (tmp_path / "data/settings.db").read_bytes()
     assert b"secret-token" not in database_bytes
     assert app.state.secure_settings.masked("TUSHARE_TOKEN") == "••••••••"
 

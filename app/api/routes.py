@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 import json
 import os
+import yaml
 from fastapi.responses import FileResponse
 from app.data.market_provider import normalize_code
 from app.database.repository import clean
@@ -33,10 +34,14 @@ class SetupPayload(BaseModel):
     smtp_from: str = ""
     smtp_to: str = ""
     web_username: str = "admin"
-    web_password: str = Field(min_length=10)
+    web_password: str = ""
     max_shares: int = Field(default=1000, gt=0)
     buys: list[dict] = Field(default_factory=lambda: [{"price": 50, "shares": 200}, {"price": 48, "shares": 200}])
     sells: list[dict] = Field(default_factory=list)
+    monitor_interval: int = Field(default=180, ge=60, le=3600)
+    risk_warning: int = Field(default=65, ge=0, le=100)
+    risk_critical: int = Field(default=85, ge=0, le=100)
+    stabilization_threshold: int = Field(default=7, ge=0, le=10)
 
 
 @router.post("/api/setup")
@@ -48,9 +53,19 @@ def save_setup(payload: SetupPayload, request: Request) -> dict:
     for key, value in mapping.items():
         if value not in ("", None) or key.endswith("ENABLED"):
             store.set(key, value)
-    store.set_password(payload.web_password)
+    if payload.web_password and len(payload.web_password) < 10:
+        raise HTTPException(400, "Dashboard 密码至少 10 位")
+    if payload.web_password:
+        store.set_password(payload.web_password)
+    elif not store.is_complete():
+        raise HTTPException(400, "首次设置必须填写至少 10 位 Dashboard 密码")
     position = {"code": "603283.SH", "max_shares": payload.max_shares, "buys": payload.buys, "sells": payload.sells}
     request.app.state.settings.path("data/portfolio.json").write_text(json.dumps(position, ensure_ascii=False, indent=2), encoding="utf-8")
+    request.app.state.settings.config["monitor"]["interval_seconds"] = payload.monitor_interval
+    request.app.state.settings.config["risk"] = {"warning_threshold": payload.risk_warning, "critical_threshold": payload.risk_critical}
+    request.app.state.settings.strategy["confirmation_score"] = payload.stabilization_threshold
+    (request.app.state.settings.config_dir / "config.yaml").write_text(yaml.safe_dump(request.app.state.settings.config, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    (request.app.state.settings.config_dir / "position_strategy.yaml").write_text(yaml.safe_dump(request.app.state.settings.strategy, allow_unicode=True, sort_keys=False), encoding="utf-8")
     store.set("SETUP_COMPLETE", "true")
     store.apply_environment()
     return {"status": "configured", "redirect": "/"}
@@ -151,8 +166,13 @@ def health(request: Request) -> dict:
     monitor = app.state.monitor.status()
     resources = resource_snapshot(app.state.settings.root)
     provider = os.getenv("LLM_PROVIDER", app.state.settings.config["llm"]["provider"])
-    llm_ready = provider == "disabled" or provider == "ollama" or bool(os.getenv("OPENAI_API_KEY") if provider == "openai" else os.getenv("DEEPSEEK_API_KEY"))
-    return {"status": "healthy" if database == "ok" else "degraded", "version": app.state.settings.path("VERSION").read_text().strip(), "uptime": round(time.monotonic() - app.state.started_at, 1), "database": database, "monitor": monitor, "scheduler": "running" if app.state.scheduler and app.state.scheduler.running else "stopped", "last_market_update": monitor.get("last_market_update"), "last_successful_poll": monitor.get("last_successful_poll"), "last_daily_report": reports[0]["date"] if reports else None, "bark_status": "enabled" if os.getenv("BARK_ENABLED", "false").lower() == "true" else "disabled", "email_status": "enabled" if os.getenv("EMAIL_ENABLED", "false").lower() == "true" else "disabled", "llm_status": "available" if llm_ready else "unavailable", "disk_usage": {"total": resources["disk_total_bytes"], "free": resources["disk_free_bytes"]}, "database_size": resources["database_size_bytes"]}
+    llm_ready = (
+        provider == "ollama" and bool(os.getenv("OLLAMA_URL"))
+        or provider == "openai" and bool(os.getenv("OPENAI_API_KEY"))
+        or provider == "deepseek" and bool(os.getenv("DEEPSEEK_API_KEY"))
+    )
+    version_file = app.state.settings.path("VERSION")
+    return {"status": "healthy" if database == "ok" else "degraded", "version": version_file.read_text().strip() if version_file.exists() else "1.0.0", "uptime": round(time.monotonic() - app.state.started_at, 1), "database": database, "monitor": monitor, "scheduler": "running" if app.state.scheduler and app.state.scheduler.running else "stopped", "last_market_update": monitor.get("last_market_update"), "last_successful_poll": monitor.get("last_successful_poll"), "last_daily_report": reports[0]["date"] if reports else None, "bark_status": "enabled" if os.getenv("BARK_ENABLED", "false").lower() == "true" else "disabled", "email_status": "enabled" if os.getenv("EMAIL_ENABLED", "false").lower() == "true" else "disabled", "llm_status": "disabled" if provider == "disabled" else "available" if llm_ready else "unavailable", "disk_usage": {"total": resources["disk_total_bytes"], "free": resources["disk_free_bytes"]}, "database_size": resources["database_size_bytes"]}
 
 
 @router.get("/api/status")

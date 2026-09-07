@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class Settings(BaseModel):
     root: Path = ROOT
+    config_dir: Path = ROOT / "config"
     config: dict = Field(default_factory=dict)
     strategy: dict = Field(default_factory=dict)
 
@@ -52,4 +53,4 @@ def load_settings(root: Path = ROOT) -> Settings:
         raise ValueError("企稳阈值必须在0到10之间")
     for folder in ("data", "reports", "logs", "backup"):
         (root / folder).mkdir(parents=True, exist_ok=True)
-    return Settings(root=root, config=config, strategy=strategy)
+    return Settings(root=root, config_dir=config_dir, config=config, strategy=strategy)

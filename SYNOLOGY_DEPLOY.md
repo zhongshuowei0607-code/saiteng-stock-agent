@@ -56,6 +56,10 @@ Bark 失败或 SMTP 授权码错误不会导致服务退出，详情见 `logs/no
 
 卸载时在 Container Manager 删除项目/容器和镜像即可。不要删除上述宿主机目录；以后上传新版本并重新创建项目即可恢复数据。
 
+资源验收可在 SSH 中运行 `chmod +x scripts/measure_container.sh && ./scripts/measure_container.sh`，输出镜像大小、容器内存/CPU及应用目录占用。建议分别记录空闲、交易时段和连续运行 7 天后的结果。
+
+构建验收可运行 `./scripts/docker_build_test.sh`。本项目开发主机若没有 Docker，对应 pytest 会明确显示 skipped；应在 DS220+ 或带 Docker 的 CI 上执行后记录镜像大小。
+
 ## 升级
 
 先用新版本覆盖程序文件，保留 `.env`、`config/`、`data/`、`logs/`、`reports/`、`backup/`，然后运行：

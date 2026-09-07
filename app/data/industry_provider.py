@@ -83,7 +83,7 @@ class IndustryProvider:
                     continue
             return peer, self.repository.history(peer)
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=2) as pool:
             jobs = [pool.submit(download, peer) for peer in names if peer != code]
             for job in as_completed(jobs):
                 peer, frame = job.result()

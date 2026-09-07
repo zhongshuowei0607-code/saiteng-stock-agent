@@ -72,6 +72,7 @@ class StockAnalyzer:
             "moneyflow": {},
             "fundamental": {},
             "warnings": warnings,
+            "stale_data": not market or market.get("date") != date,
         }
         if refresh and not frame.empty:
             from app.data.enrichment import enrich

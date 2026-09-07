@@ -35,13 +35,23 @@ class RealtimeMonitor:
             return False
         self.running = True
         try:
+            previous = self.repository.reports(limit=1)
             frame, warnings = MarketService(providers(), self.repository).update("603283.SH", 15)
             latest = None if frame.empty else str(frame.iloc[-1]["date"])
-            self.stale_data = bool(warnings) or latest != now.date().isoformat()
+            self.stale_data = latest != now.date().isoformat() or any(
+                "全部行情源失败" in warning for warning in warnings
+            )
             self.last_market_update = latest
             report = self.analyzer.analyze(refresh=False, use_llm=False)
             report["stale_data"] = self.stale_data
-            self.trigger_engine.evaluate(report, self.settings.config["risk"], now)
+            trigger_report = dict(report)
+            if previous:
+                trigger_report["levels"] = previous[0].get(
+                    "levels", report.get("levels", {})
+                )
+            self.trigger_engine.evaluate(
+                trigger_report, self.settings.config["risk"], now
+            )
             self.last_successful_poll = now.isoformat()
             self.failures = 0
             self.next_allowed = None

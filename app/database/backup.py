@@ -6,16 +6,16 @@ import sqlite3
 import zipfile
 
 
-def backup_database(database: Path, directory: Path, today: date | None = None, retention_days: int = 30) -> Path:
+def backup_database(database: Path, directory: Path, today: date | None = None, retention_days: int = 30, prefix: str = "stock_agent") -> Path:
     today = today or date.today()
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"stock_agent_{today:%Y%m%d}.db"
+    target = directory / f"{prefix}_{today:%Y%m%d}.db"
     with sqlite3.connect(database) as source, sqlite3.connect(target) as destination:
         source.backup(destination)
     cutoff = today - timedelta(days=retention_days)
-    for item in directory.glob("stock_agent_????????.db"):
+    for item in directory.glob(f"{prefix}_????????.db"):
         try:
-            stamp = datetime.strptime(item.stem.removeprefix("stock_agent_"), "%Y%m%d").date()
+            stamp = datetime.strptime(item.stem.removeprefix(prefix + "_"), "%Y%m%d").date()
             if stamp < cutoff:
                 item.unlink()
         except ValueError:

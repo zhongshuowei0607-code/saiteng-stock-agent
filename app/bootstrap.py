@@ -11,7 +11,7 @@ from app.config.settings import Settings, load_settings
 from app.database.db import create_db
 from app.database.migrations import migrate
 from app.database.repository import Repository
-from app.config.secure_store import SecureSettings
+from app.config.secure_store import create_secure_settings
 
 DEFAULT_POSITION = {"code": "603283.SH", "max_shares": 1000, "buys": [{"price": 50, "shares": 200}, {"price": 48, "shares": 200}], "sells": []}
 
@@ -32,7 +32,7 @@ def bootstrap(root: Path | None = None) -> tuple[Settings, Repository]:
     engine = create_db(root / "data/stock_agent.db")
     migrate(engine, root / "VERSION")
     repository = Repository(engine)
-    SecureSettings(engine, root).apply_environment()
+    create_secure_settings(root).apply_environment()
     status = {"initialized_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(), "pid": os.getpid(), "schema_version": 1}
     (root / "data/system_status.json").write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
     return settings, repository

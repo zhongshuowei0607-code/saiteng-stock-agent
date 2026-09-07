@@ -11,9 +11,7 @@ COPY config ./defaults/config
 COPY run.py .
 COPY VERSION .
 RUN mkdir -p config data reports logs backup && \
-    cp -n defaults/config/* config/ && \
-    useradd --uid 1000 --create-home agent && chown -R agent:agent /app
-USER agent
+    cp -n defaults/config/* config/
 EXPOSE 8000
 HEALTHCHECK --interval=60s --timeout=10s --retries=3 --start-period=40s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=5)"
 CMD ["python", "run.py", "server"]

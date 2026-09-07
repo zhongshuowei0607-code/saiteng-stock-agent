@@ -98,6 +98,8 @@ Windows 可用任务计划程序在工作日 17:30 执行 `.venv\Scripts\python.
 
 ## Docker / NAS
 
+DS220+ 请优先阅读 [SYNOLOGY_DEPLOY.md](SYNOLOGY_DEPLOY.md)。群晖版本使用一个 linux/amd64 容器、端口 18000、五个持久化目录、健康检查、实时监控、Bark/Email、02:00 备份、15:10 行情和 17:30 日报。`scripts/measure_container.sh` 可在 NAS 上测量镜像大小与容器资源。
+
 ```sh
 cp .env.example .env
 # 配置密钥、模型，再启动：

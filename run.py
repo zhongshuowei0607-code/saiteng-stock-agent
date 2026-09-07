@@ -51,6 +51,9 @@ def main() -> None:
         from app.database.backup import backup_database
 
         target = backup_database(settings.path("data/stock_agent.db"), settings.path("backup"), retention_days=settings.config["storage"]["backup_retention_days"])
+        settings_db = settings.path("data/settings.db")
+        if settings_db.exists():
+            backup_database(settings_db, settings.path("backup"), retention_days=settings.config["storage"]["backup_retention_days"], prefix="settings")
         print(f"备份完成：{target}")
         return
     if args.command == "init-db":

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import bcrypt
 from cryptography.fernet import Fernet
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, text, create_engine
 
 SECRET_KEYS = {"TUSHARE_TOKEN", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "BARK_DEVICE_KEY", "SMTP_PASSWORD", "API_SECRET", "WEB_PASSWORD_HASH"}
 
@@ -21,6 +21,8 @@ class SecureSettings:
             except OSError:
                 pass
         self.cipher = Fernet(self.key_file.read_bytes())
+        with self.engine.begin() as connection:
+            connection.execute(text("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, secret INTEGER NOT NULL DEFAULT 0)"))
 
     def set(self, key: str, value: object, secret: bool | None = None) -> None:
         secret = key in SECRET_KEYS if secret is None else secret
@@ -61,3 +63,8 @@ class SecureSettings:
 
     def masked(self, key: str) -> str:
         return "••••••••" if self.get(key) else ""
+
+
+def create_secure_settings(root: Path) -> SecureSettings:
+    engine = create_engine("sqlite:///" + str(root / "data/settings.db"), connect_args={"check_same_thread": False, "timeout": 30})
+    return SecureSettings(engine, root)

@@ -27,7 +27,7 @@ def enrich(code: str, frame: pd.DataFrame, peers: dict, repository: Repository) 
             code, {code: "赛腾股份", **peers}, frame
         ),
     }
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(fn): name for name, fn in jobs.items()}
         for future in as_completed(futures):
             name = futures[future]
