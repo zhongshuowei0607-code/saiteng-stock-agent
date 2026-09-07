@@ -55,3 +55,14 @@ Bark 失败或 SMTP 授权码错误不会导致服务退出，详情见 `logs/no
 - 数据库备份：`/volume1/docker/stock-agent/backup`
 
 卸载时在 Container Manager 删除项目/容器和镜像即可。不要删除上述宿主机目录；以后上传新版本并重新创建项目即可恢复数据。
+
+## 升级
+
+先用新版本覆盖程序文件，保留 `.env`、`config/`、`data/`、`logs/`、`reports/`、`backup/`，然后运行：
+
+```sh
+chmod +x upgrade_synology.sh
+./upgrade_synology.sh
+```
+
+脚本先备份数据库，再停止旧容器、重建、启动、执行 migration 并等待健康检查。失败不会删除持久化目录；查看日志后可用升级前 `backup/` 中的数据库恢复。
