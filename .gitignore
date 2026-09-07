@@ -8,3 +8,5 @@ reports/*/
 
 data/*.lock
 data/trading_calendar.json
+
+.venv.backup-*/

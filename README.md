@@ -48,6 +48,14 @@ python -m pytest -q               # 全部自动测试
 
 Windows 也可以双击 `start.bat`（先完成环境安装）。`download` 只下载行情，不生成报告；已有报告打开页面即可查看，点击“更新并生成日报”运行完整流程。首次启动没有报告时创建缺失/缓存报告，需点击更新才抓取网络数据。Web 服务默认仅绑定本机，不提供远程账户系统。
 
+## macOS 一键运行
+
+在 Finder 中双击项目目录下的 `start.command`。脚本会自动进入项目目录、使用 `.venv`，并在服务就绪后打开默认浏览器。已有本工具服务时直接打开页面，不重复启动。
+
+首次运行需要 Python 3.11+；缺少或失效的虚拟环境会自动重建，旧环境保留为 `.venv.backup-*`；缺少依赖时自动安装（需要联网），没有 `.env` 时从示例创建。API Key 和模型仍需按下文配置。请保留启动的终端窗口，按 `Control+C` 停止服务。
+
+若 macOS 阻止首次打开，可右键 `start.command` → 打开。复制项目后若执行权限丢失，在项目目录运行 `chmod +x start.command`。端口 8000 被其他程序占用时会提示错误，不会关闭其他程序。
+
 ## 模型配置
 
 默认 `app/config/config.yaml` 为 Ollama / qwen3。安装 Ollama 后先运行 `ollama pull qwen3`，确保 Ollama 服务正在运行。在 `.env` 设置 `OLLAMA_URL=http://localhost:11434`。
