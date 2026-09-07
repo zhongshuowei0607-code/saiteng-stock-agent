@@ -16,6 +16,7 @@ from app.portfolio.portfolio_service import load_position
 from app.api.routes import router
 from app.config.secure_store import SecureSettings
 from app.security import authenticate
+from app.notifications import NotificationService
 
 
 def create_app(
@@ -52,7 +53,8 @@ def create_app(
     app = FastAPI(title="赛腾股份每日分析 Agent", lifespan=lifespan)
     app.state.settings = settings
     app.state.repository = repository
-    app.state.runner = AnalysisRunner(analyzer)
+    app.state.notifier = NotificationService(settings.root)
+    app.state.runner = AnalysisRunner(analyzer, app.state.notifier)
     app.state.secure_settings = SecureSettings(repository.engine, settings.root)
     app.add_middleware(
         TrustedHostMiddleware,

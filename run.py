@@ -40,6 +40,13 @@ def main() -> None:
     if args.command == "migrate":
         print("数据库迁移完成")
         return
+    if args.command in ("test-bark", "test-email"):
+        from app.notifications import NotificationService
+
+        notifier = NotificationService(settings.root)
+        ok = notifier.bark("Stock Agent 测试", "Bark 配置有效") if args.command == "test-bark" else notifier.email("Stock Agent 测试", "Email 配置有效")
+        print("发送成功" if ok else "未发送，请检查配置和 notification.log")
+        raise SystemExit(0 if ok else 2)
     if args.command == "init-db":
         print("SQLite 已初始化")
         return

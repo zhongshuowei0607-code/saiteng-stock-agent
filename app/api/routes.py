@@ -53,6 +53,16 @@ def save_setup(payload: SetupPayload, request: Request) -> dict:
     return {"status": "configured", "redirect": "/"}
 
 
+@router.post("/api/notifications/test-bark")
+def test_bark(request: Request) -> dict:
+    return {"ok": request.app.state.notifier.bark("Stock Agent 测试", "Bark 配置有效", "INFO")}
+
+
+@router.post("/api/notifications/test-email")
+def test_email(request: Request) -> dict:
+    return {"ok": request.app.state.notifier.email("Stock Agent 测试", "Email 配置有效")}
+
+
 def check(code: str) -> str:
     try:
         code = normalize_code(code)
