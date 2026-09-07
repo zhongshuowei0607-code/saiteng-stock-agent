@@ -3,6 +3,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from starlette.responses import Response
 import logging
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from sqlalchemy import text
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -47,11 +50,15 @@ def create_app(
                 app.state.runner,
                 TradingCalendar(settings.path("data/trading_calendar.json")),
                 settings.config["scheduler"],
+                app.state.monitor,
+                repository,
             )
             scheduler.start()
+            app.state.scheduler = scheduler
         yield
         if scheduler:
             scheduler.shutdown(wait=False)
+        repository.engine.dispose()
 
     app = FastAPI(title="赛腾股份每日分析 Agent", lifespan=lifespan)
     app.state.settings = settings
@@ -61,6 +68,8 @@ def create_app(
     app.state.calendar = TradingCalendar(settings.path("data/trading_calendar.json"))
     app.state.monitor = RealtimeMonitor(settings, repository, analyzer, app.state.calendar, TriggerEngine(repository, app.state.notifier, settings.config["monitor"]["cooldown_minutes"]))
     app.state.secure_settings = SecureSettings(repository.engine, settings.root)
+    app.state.started_at = time.monotonic()
+    app.state.scheduler = None
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"],

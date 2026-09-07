@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from app.bootstrap import bootstrap
 from app.monitor.realtime import in_trading_session
 from app.monitor.triggers import TriggerEngine
+from app.scheduler.jobs import build_scheduler
 
 
 class Notifier:
@@ -39,3 +40,18 @@ def test_trigger_state_prevents_repeated_notifications(tmp_path):
     report["risk"]["score"] = 30
     engine.evaluate(report, {"warning_threshold": 65, "critical_threshold": 85}, now)
     assert repository.trigger_state("BUY_WATCH_LEVEL_1")["state"] == "RESET"
+
+
+def test_single_scheduler_contains_monitor_and_two_close_jobs():
+    class Runner:
+        pass
+    class Calendar:
+        pass
+    class Settings:
+        config = {"monitor": {"interval_seconds": 180}}
+    class Monitor:
+        settings = Settings()
+        def poll(self):
+            pass
+    scheduler = build_scheduler(Runner(), Calendar(), {"hour": 17, "minute": 30, "market_update_hour": 15, "market_update_minute": 10}, Monitor(), object())
+    assert {job.id for job in scheduler.get_jobs()} == {"daily_stock_analysis", "close_market_update", "realtime_monitor"}

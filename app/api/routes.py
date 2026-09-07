@@ -2,12 +2,15 @@ from datetime import date
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 import json
+import os
 from fastapi.responses import FileResponse
 from app.data.market_provider import normalize_code
 from app.database.repository import clean
 from app.indicators.technical import calculate
 from app.portfolio.portfolio_service import load_position
 from app.system.resources import resource_snapshot
+import time
+from sqlalchemy import text
 
 router = APIRouter()
 
@@ -133,6 +136,23 @@ def reports(request: Request) -> list[dict]:
 @router.get("/api/system/resources")
 def resources(request: Request) -> dict:
     return resource_snapshot(request.app.state.settings.root)
+
+
+@router.get("/api/health")
+def health(request: Request) -> dict:
+    app = request.app
+    database = "ok"
+    try:
+        with app.state.repository.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        database = "error"
+    reports = app.state.repository.reports(limit=1)
+    monitor = app.state.monitor.status()
+    resources = resource_snapshot(app.state.settings.root)
+    provider = os.getenv("LLM_PROVIDER", app.state.settings.config["llm"]["provider"])
+    llm_ready = provider == "disabled" or provider == "ollama" or bool(os.getenv("OPENAI_API_KEY") if provider == "openai" else os.getenv("DEEPSEEK_API_KEY"))
+    return {"status": "healthy" if database == "ok" else "degraded", "version": app.state.settings.path("VERSION").read_text().strip(), "uptime": round(time.monotonic() - app.state.started_at, 1), "database": database, "monitor": monitor, "scheduler": "running" if app.state.scheduler and app.state.scheduler.running else "stopped", "last_market_update": monitor.get("last_market_update"), "last_successful_poll": monitor.get("last_successful_poll"), "last_daily_report": reports[0]["date"] if reports else None, "bark_status": "enabled" if os.getenv("BARK_ENABLED", "false").lower() == "true" else "disabled", "email_status": "enabled" if os.getenv("EMAIL_ENABLED", "false").lower() == "true" else "disabled", "llm_status": "available" if llm_ready else "unavailable", "disk_usage": {"total": resources["disk_total_bytes"], "free": resources["disk_free_bytes"]}, "database_size": resources["database_size_bytes"]}
 
 
 @router.get("/api/status")
