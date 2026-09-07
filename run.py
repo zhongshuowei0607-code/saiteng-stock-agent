@@ -47,6 +47,12 @@ def main() -> None:
         ok = notifier.bark("Stock Agent 测试", "Bark 配置有效") if args.command == "test-bark" else notifier.email("Stock Agent 测试", "Email 配置有效")
         print("发送成功" if ok else "未发送，请检查配置和 notification.log")
         raise SystemExit(0 if ok else 2)
+    if args.command == "backup":
+        from app.database.backup import backup_database
+
+        target = backup_database(settings.path("data/stock_agent.db"), settings.path("backup"), retention_days=settings.config["storage"]["backup_retention_days"])
+        print(f"备份完成：{target}")
+        return
     if args.command == "init-db":
         print("SQLite 已初始化")
         return

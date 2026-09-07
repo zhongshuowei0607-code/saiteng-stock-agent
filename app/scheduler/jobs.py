@@ -12,6 +12,7 @@ from app.data.bounded import fetch
 from app.analysis.runner import AnalysisRunner
 from app.data.market_provider import MarketService
 from app.data.remote_market import providers
+from app.database.backup import backup_database, clean_reports
 
 
 class TradingCalendar:
@@ -98,8 +99,14 @@ def market_update_job(repository, calendar: TradingCalendar, day: date | None = 
     return not frame.empty
 
 
+def maintenance_job(root: Path, storage: dict) -> str:
+    result = backup_database(root / "data/stock_agent.db", root / "backup", retention_days=storage.get("backup_retention_days", 30))
+    clean_reports(root / "reports", storage.get("report_retention_days", 365), storage.get("archive_old_reports", False))
+    return str(result)
+
+
 def build_scheduler(
-    runner: AnalysisRunner, calendar: TradingCalendar, config: dict, monitor=None, repository=None
+    runner: AnalysisRunner, calendar: TradingCalendar, config: dict, monitor=None, repository=None, root: Path | None = None, storage: dict | None = None
 ) -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
     scheduler.add_job(
@@ -118,4 +125,6 @@ def build_scheduler(
         scheduler.add_job(market_update_job, trigger=CronTrigger(hour=config.get("market_update_hour", 15), minute=config.get("market_update_minute", 10), timezone="Asia/Shanghai"), args=[repository, calendar], id="close_market_update", replace_existing=True, coalesce=True, max_instances=1)
     if monitor is not None:
         scheduler.add_job(monitor.poll, "interval", seconds=monitor.settings.config["monitor"]["interval_seconds"], id="realtime_monitor", replace_existing=True, coalesce=True, max_instances=1)
+    if root is not None:
+        scheduler.add_job(maintenance_job, trigger=CronTrigger(hour=config.get("backup_hour", 2), minute=config.get("backup_minute", 0), timezone="Asia/Shanghai"), args=[root, storage or {}], id="database_backup", replace_existing=True, coalesce=True, max_instances=1)
     return scheduler

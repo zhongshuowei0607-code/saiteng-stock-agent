@@ -52,6 +52,8 @@ def create_app(
                 settings.config["scheduler"],
                 app.state.monitor,
                 repository,
+                settings.root,
+                settings.config.get("storage", {}),
             )
             scheduler.start()
             app.state.scheduler = scheduler
