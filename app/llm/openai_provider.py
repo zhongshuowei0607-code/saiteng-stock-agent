@@ -22,7 +22,14 @@ class OpenAIProvider(LLMProvider):
         key = os.getenv(self.key_name)
         if not key:
             raise ValueError("缺少模型 API Key")
-        with httpx.Client(timeout=self.timeout) as client:
+        timeout = httpx.Timeout(
+            self.timeout,
+            connect=min(self.timeout, 10),
+            read=min(self.timeout, 30),
+            write=min(self.timeout, 10),
+            pool=min(self.timeout, 5),
+        )
+        with httpx.Client(timeout=timeout) as client:
             response = client.post(
                 self.base_url.rstrip("/") + "/chat/completions",
                 headers={"Authorization": "Bearer " + key},
@@ -38,6 +45,7 @@ class OpenAIProvider(LLMProvider):
                         },
                     ],
                     "response_format": {"type": "json_object"},
+                    "max_tokens": 2400,
                 },
             )
             response.raise_for_status()

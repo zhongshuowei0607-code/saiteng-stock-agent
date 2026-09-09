@@ -96,6 +96,8 @@ def test_llm_wire_contract(monkeypatch, provider, envkey, endpoint):
     assert seen[0][1]["json"]["messages"][1]["content"] == json.dumps(
         {"market": {"close": 43.7}}, ensure_ascii=False
     )
+    if envkey:
+        assert seen[0][1]["json"]["max_tokens"] == 2400
     assert "工具" in seen[0][1]["json"]["messages"][0]["content"]
 
 

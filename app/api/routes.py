@@ -193,7 +193,7 @@ def analyze(code: str, request: Request, background: BackgroundTasks) -> dict:
     if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
         raise HTTPException(403, "只允许当前页面发起分析")
     if not request.app.state.runner.reserve():
-        raise HTTPException(409, "分析正在运行，请稍候")
+        return {"status": "already_running"}
     background.add_task(request.app.state.runner.run_reserved, code)
     return {"status": "running"}
 

@@ -35,5 +35,7 @@ def test_api_and_dashboard(tmp_path):
             == 403
         )
         app.state.runner.reserve()
-        assert client.post("/api/stock/603283/analyze").status_code == 409
+        duplicate = client.post("/api/stock/603283/analyze")
+        assert duplicate.status_code == 202
+        assert duplicate.json()["status"] == "already_running"
         assert client.get("/reports/603283/invalid.html").status_code == 404
