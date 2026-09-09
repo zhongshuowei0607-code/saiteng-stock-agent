@@ -1,3 +1,6 @@
+import os
+import sys
+
 import pandas as pd
 import pytest
 from app.data.market_provider import normalize_code, validate, MarketService
@@ -99,6 +102,62 @@ def test_tushare_units(monkeypatch):
     monkeypatch.setattr(provider, "client", lambda: Client())
     frame = provider.history("603283", "20250101", "20260904")
     assert frame.iloc[0].amount == 123000 and frame.iloc[0].total_mv == 1000000
+
+
+def test_akshare_bypasses_eastmoney_proxy(monkeypatch):
+    captured = {}
+
+    class FakeAkshare:
+        @staticmethod
+        def stock_zh_a_hist(**kwargs):
+            captured["no_proxy"] = os.environ.get("NO_PROXY", "")
+            return pd.DataFrame()
+
+    monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
+    AKShareProvider().history("603283.SH", "20260901", "20260909")
+    assert ".eastmoney.com" in captured["no_proxy"]
+
+
+def test_akshare_falls_back_to_sina_and_normalizes_units(monkeypatch):
+    class FakeAkshare:
+        @staticmethod
+        def stock_zh_a_hist(**kwargs):
+            raise ConnectionError("eastmoney unavailable")
+
+        @staticmethod
+        def stock_zh_a_daily(**kwargs):
+            assert kwargs["symbol"] == "sh603283"
+            return pd.DataFrame(
+                [
+                    dict(
+                        date="2026-09-08",
+                        open=10,
+                        high=11,
+                        low=9,
+                        close=10,
+                        volume=10000,
+                        amount=100000,
+                        turnover=0.01,
+                    ),
+                    dict(
+                        date="2026-09-09",
+                        open=10,
+                        high=12,
+                        low=10,
+                        close=11,
+                        volume=20000,
+                        amount=220000,
+                        turnover=0.02,
+                    ),
+                ]
+            )
+
+    monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
+    frame = AKShareProvider().history("603283.SH", "20260901", "20260909")
+    assert frame.iloc[-1]["volume"] == 200
+    assert frame.iloc[-1]["turnover"] == 2
+    assert frame.iloc[-1]["pre_close"] == 10
+    assert frame.iloc[-1]["source"] == "AKShare / 新浪财经（不复权）"
 
 
 def test_config():

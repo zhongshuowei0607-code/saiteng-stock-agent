@@ -9,5 +9,6 @@ reports/*/
 data/*.lock
 data/.settings.key
 data/trading_calendar.json
+data/system_status.json
 
 .venv.backup-*/
