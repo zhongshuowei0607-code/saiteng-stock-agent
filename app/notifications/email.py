@@ -4,6 +4,7 @@ import logging
 import os
 import smtplib
 import ssl
+import certifi
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -25,13 +26,19 @@ def send_email(subject: str, body: str, attachment: Path | None = None) -> bool:
         message.add_attachment(attachment.read_bytes(), maintype="text", subtype="html", filename=attachment.name)
     try:
         port = int(os.getenv("SMTP_PORT", "465"))
+        login_user = user
+        if host.lower() == "smtp.qq.com" and "@" not in user and sender.lower().endswith("@qq.com"):
+            login_user = sender
+        tls_context = ssl.create_default_context(cafile=certifi.where())
         if os.getenv("SMTP_USE_SSL", "true").lower() == "true":
-            client = smtplib.SMTP_SSL(host, port, timeout=10, context=ssl.create_default_context())
+            client = smtplib.SMTP_SSL(
+                host, port, timeout=10, context=tls_context
+            )
         else:
             client = smtplib.SMTP(host, port, timeout=10)
-            client.starttls(context=ssl.create_default_context())
+            client.starttls(context=tls_context)
         with client:
-            client.login(user, password)
+            client.login(login_user, password)
             client.send_message(message)
         LOGGER.info("Email 发送成功 recipient=%s", recipient)
         return True

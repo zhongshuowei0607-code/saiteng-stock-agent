@@ -63,6 +63,7 @@ def save_setup(payload: SetupPayload, request: Request) -> dict:
     request.app.state.settings.path("data/portfolio.json").write_text(json.dumps(position, ensure_ascii=False, indent=2), encoding="utf-8")
     request.app.state.settings.config["monitor"]["interval_seconds"] = payload.monitor_interval
     request.app.state.settings.config["risk"] = {"warning_threshold": payload.risk_warning, "critical_threshold": payload.risk_critical}
+    store.apply_llm_config(request.app.state.settings.config)
     request.app.state.settings.strategy["confirmation_score"] = payload.stabilization_threshold
     (request.app.state.settings.config_dir / "config.yaml").write_text(yaml.safe_dump(request.app.state.settings.config, allow_unicode=True, sort_keys=False), encoding="utf-8")
     (request.app.state.settings.config_dir / "position_strategy.yaml").write_text(yaml.safe_dump(request.app.state.settings.strategy, allow_unicode=True, sort_keys=False), encoding="utf-8")

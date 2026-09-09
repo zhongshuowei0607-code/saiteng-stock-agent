@@ -32,7 +32,9 @@ def bootstrap(root: Path | None = None) -> tuple[Settings, Repository]:
     engine = create_db(root / "data/stock_agent.db")
     migrate(engine, root / "VERSION")
     repository = Repository(engine)
-    create_secure_settings(root).apply_environment()
+    secure_settings = create_secure_settings(root)
+    secure_settings.apply_llm_config(settings.config)
+    secure_settings.engine.dispose()
     status = {"initialized_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(), "pid": os.getpid(), "schema_version": 1}
     (root / "data/system_status.json").write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
     return settings, repository

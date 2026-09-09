@@ -34,8 +34,28 @@ def test_setup_encrypts_secrets_and_enables_auth(tmp_path, monkeypatch):
 
 
 def test_environment_has_priority(tmp_path, monkeypatch):
+    monkeypatch.setenv("TUSHARE_TOKEN", "environment")
     settings, repository = prepared(tmp_path)
     store = create_app(settings, repository).state.secure_settings
     store.set("TUSHARE_TOKEN", "database")
-    monkeypatch.setenv("TUSHARE_TOKEN", "environment")
     assert store.get("TUSHARE_TOKEN") == "environment"
+
+
+def test_llm_provider_survives_restart(tmp_path, monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    settings, repository = prepared(tmp_path)
+    store = create_app(settings, repository).state.secure_settings
+    store.set("LLM_PROVIDER", "deepseek")
+    store.set("LLM_MODEL", "deepseek-v4-pro")
+    store.apply_llm_config(settings.config)
+    assert settings.config["llm"] == {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "timeout": 60,
+    }
+
+    restarted, restarted_repository = bootstrap(tmp_path)
+    assert restarted.config["llm"]["provider"] == "deepseek"
+    assert restarted.config["llm"]["model"] == "deepseek-v4-pro"
+    restarted_repository.engine.dispose()

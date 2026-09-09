@@ -44,3 +44,55 @@ def test_email_mock(monkeypatch):
     monkeypatch.setattr("app.notifications.email.smtplib.SMTP_SSL", SMTP)
     assert send_email("测试", "正文")
     assert len(sent) == 1
+
+
+def test_email_uses_certifi_ca_bundle(monkeypatch):
+    for key, value in {"EMAIL_ENABLED": "true", "SMTP_HOST": "smtp.example", "SMTP_USER": "user", "SMTP_PASSWORD": "authorization-code", "SMTP_FROM": "from@example", "SMTP_TO": "to@example"}.items():
+        monkeypatch.setenv(key, value)
+    contexts = []
+
+    class SMTP:
+        def __init__(self, *args, **kwargs):
+            contexts.append(kwargs["context"])
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def login(self, user, password):
+            pass
+        def send_message(self, message):
+            pass
+
+    monkeypatch.setattr("app.notifications.email.smtplib.SMTP_SSL", SMTP)
+    assert send_email("测试", "正文")
+    assert contexts
+
+
+def test_qq_email_uses_full_sender_as_login(monkeypatch):
+    values = {
+        "EMAIL_ENABLED": "true",
+        "SMTP_HOST": "smtp.qq.com",
+        "SMTP_USER": "nickname",
+        "SMTP_PASSWORD": "authorization-code",
+        "SMTP_FROM": "owner@qq.com",
+        "SMTP_TO": "to@example.com",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    logins = []
+
+    class SMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def login(self, user, password):
+            logins.append(user)
+        def send_message(self, message):
+            pass
+
+    monkeypatch.setattr("app.notifications.email.smtplib.SMTP_SSL", SMTP)
+    assert send_email("测试", "正文")
+    assert logins == ["owner@qq.com"]

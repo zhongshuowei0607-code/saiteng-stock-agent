@@ -36,6 +36,8 @@ def create_app(
     from app.config.logging_config import configure_logging
 
     configure_logging(settings.root)
+    secure_settings = create_secure_settings(settings.root)
+    secure_settings.apply_llm_config(settings.config)
     repository = repository or Repository(
         create_db(settings.path("data/stock_agent.db"))
     )
@@ -79,7 +81,7 @@ def create_app(
     app.state.runner = AnalysisRunner(analyzer, app.state.notifier)
     app.state.calendar = TradingCalendar(settings.path("data/trading_calendar.json"))
     app.state.monitor = RealtimeMonitor(settings, repository, analyzer, app.state.calendar, TriggerEngine(repository, app.state.notifier, settings.config["monitor"]["cooldown_minutes"]))
-    app.state.secure_settings = create_secure_settings(settings.root)
+    app.state.secure_settings = secure_settings
     app.state.started_at = time.monotonic()
     app.state.scheduler = None
     app.add_middleware(
