@@ -1,0 +1,9 @@
+.analysis-status{background:#fff;border:1px solid #dfe6ea;border-radius:10px;margin:20px 0;padding:16px 20px}
+.analysis-status>div:first-child{display:flex;justify-content:space-between;align-items:center}
+.analysis-status h2{margin:0;font-size:16px}
+.analysis-status span{font-size:13px;color:#627784}
+.analysis-status p{font-size:13px;color:#71818d;margin:7px 0}
+.analysis-track{height:5px;background:#e6ecef;border-radius:4px;overflow:hidden}
+.analysis-track i{display:block;width:0;height:100%;background:#268875;transition:width .35s ease}
+.analysis-status[data-state="running"] .analysis-track i{background:#d2a84b}
+.analysis-status[data-state="error"] .analysis-track i{background:#c45654}

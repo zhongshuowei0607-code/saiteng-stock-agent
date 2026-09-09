@@ -4,6 +4,7 @@ from app.config.settings import load_settings
 from app.database.db import create_db
 from app.database.repository import Repository
 from app.analysis.stock_analyzer import StockAnalyzer
+from app.analysis.runner import AnalysisRunner
 from test_phase2 import sample
 
 
@@ -39,3 +40,19 @@ def test_api_and_dashboard(tmp_path):
         assert duplicate.status_code == 202
         assert duplicate.json()["status"] == "already_running"
         assert client.get("/reports/603283/invalid.html").status_code == 404
+
+
+def test_analysis_runner_exposes_progress_state():
+    class Analyzer:
+        def analyze(self, code, progress=None):
+            progress("llm", "等待 AI 生成今日总结")
+            return {"date": "2026-09-09"}
+
+    runner = AnalysisRunner(Analyzer())
+    assert runner.reserve()
+    assert runner.status()["stage"] == "queued"
+    runner.run_reserved()
+    status = runner.status()
+    assert status["running"] is False
+    assert status["stage"] == "complete"
+    assert status["message"] == "分析完成，日报已更新"

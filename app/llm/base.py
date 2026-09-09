@@ -59,15 +59,25 @@ def explain(provider: LLMProvider | None, facts: dict) -> dict:
         ids = {x["id"] for x in facts.get("news", []) + facts.get("announcements", [])}
         if any(event["id"] not in ids for event in result["events"]):
             raise ValueError("模型引用不存在的事件")
-        # 保守过滤模型新增数值；只能复述输入中已有的数字，不能替程序运算。
+        # 允许对已有事实做轻微四舍五入，也允许普通序号；明显新增的
+        # 小数或大额数字仍拒绝，避免模型改写价格、比例和金额。
         number_pattern = r"(?<![a-zA-Z])[-+]?\d+(?:\.\d+)?"
-        known = {
-            Decimal(n)
-            for n in re.findall(number_pattern, json.dumps(facts, ensure_ascii=False))
-        }
-        prose = " ".join(str(v) for k, v in result.items() if k != "events")
-        if any(Decimal(n) not in known for n in re.findall(number_pattern, prose)):
-            raise ValueError("模型输出包含未提供数值")
+        known = [
+            Decimal(number)
+            for number in re.findall(
+                number_pattern, json.dumps(facts, ensure_ascii=False)
+            )
+        ]
+        prose = " ".join(str(value) for key, value in result.items() if key != "events")
+        for token in re.findall(number_pattern, prose):
+            value = Decimal(token)
+            if "." not in token and abs(value) <= 100:
+                continue
+            if not any(
+                abs(value - fact) <= max(Decimal("0.05"), abs(fact) / 1000)
+                for fact in known
+            ):
+                raise ValueError("模型输出包含未提供数值")
         for event in result["events"]:
             source = next(
                 x
@@ -81,9 +91,15 @@ def explain(provider: LLMProvider | None, facts: dict) -> dict:
         result["status"] = "generated"
         return result
     except Exception as exc:
-        logging.warning("LLM 不可用或输出校验失败：%s", type(exc).__name__)
+        reason = str(exc).splitlines()[0][:160]
+        logging.warning(
+            "LLM 不可用或输出校验失败：%s reason=%s",
+            type(exc).__name__,
+            reason,
+        )
         return {
             "status": "unavailable",
             "summary": "数据不足，无法判断。AI 未生成或输出未通过校验；请查看程序计算事实。",
+            "reason": type(exc).__name__,
             "events": [],
         }

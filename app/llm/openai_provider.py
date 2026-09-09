@@ -25,7 +25,7 @@ class OpenAIProvider(LLMProvider):
         timeout = httpx.Timeout(
             self.timeout,
             connect=min(self.timeout, 10),
-            read=min(self.timeout, 30),
+            read=min(self.timeout, 90),
             write=min(self.timeout, 10),
             pool=min(self.timeout, 5),
         )
@@ -45,7 +45,7 @@ class OpenAIProvider(LLMProvider):
                         },
                     ],
                     "response_format": {"type": "json_object"},
-                    "max_tokens": 2400,
+                    "max_tokens": 1600,
                 },
             )
             response.raise_for_status()

@@ -9,10 +9,11 @@ from app.bootstrap import bootstrap
 
 def test_dashboard_contains_synology_features():
     page = Path("app/web/templates/dashboard_synology.html").read_text()
-    for text in ("Stock Agent v", "当前价", "持仓", "风险 / 企稳", "RSI", "今日触发记录", "历史日报", "系统设置"):
+    for text in ("Stock Agent v", "当前价", "持仓", "风险 / 企稳", "RSI", "今日触发记录", "历史日报", "系统设置", "AI 分析状态"):
         assert text in page
     script = Path("app/web/static/synology_dashboard.js").read_text()
     assert "RSI14" in script and "/api/health" in script
+    assert "renderAnalysis" in script and "elapsed_seconds" in script
 
 
 def test_no_heavy_ds220_dependencies():

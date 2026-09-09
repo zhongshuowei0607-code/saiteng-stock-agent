@@ -1,5 +1,6 @@
 from app.notifications.bark import send_bark
 from app.notifications.email import send_email
+from app.notifications.service import NotificationService
 
 
 def test_bark_mock(monkeypatch):
@@ -96,3 +97,23 @@ def test_qq_email_uses_full_sender_as_login(monkeypatch):
     monkeypatch.setattr("app.notifications.email.smtplib.SMTP_SSL", SMTP)
     assert send_email("测试", "正文")
     assert logins == ["owner@qq.com"]
+
+
+def test_daily_email_is_sent_once_and_failure_can_retry(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMAIL_ENABLED", "true")
+    service = NotificationService(tmp_path)
+    monkeypatch.setattr(service, "bark", lambda *args: False)
+    sent = []
+    monkeypatch.setattr(
+        service, "email", lambda *args: sent.append(args) or len(sent) > 1
+    )
+    report = {
+        "date": "2026-09-09",
+        "risk": {"score": 63},
+        "ai": {"summary": "测试摘要"},
+    }
+
+    assert service.daily(report)["email"] is False
+    assert service.daily(report)["email"] is True
+    assert service.daily(report)["email"] == "already_sent"
+    assert len(sent) == 2

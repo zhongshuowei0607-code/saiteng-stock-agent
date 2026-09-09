@@ -2,6 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
 import time
+from collections.abc import Callable
 from app.config.settings import Settings
 from app.database.repository import Repository, clean
 from app.data.market_provider import MarketService, normalize_code
@@ -24,13 +25,28 @@ class StockAnalyzer:
         self.settings, self.repository = settings, repository
 
     def analyze(
-        self, code: str = "603283.SH", refresh: bool = True, use_llm: bool = True
+        self,
+        code: str = "603283.SH",
+        refresh: bool = True,
+        use_llm: bool = True,
+        progress: Callable[[str, str], None] | None = None,
     ) -> dict:
         with analysis_lock(self.settings.path("data/analysis.lock")):
-            return self._analyze(code, refresh, use_llm)
+            return self._analyze(code, refresh, use_llm, progress)
 
-    def _analyze(self, code: str, refresh: bool, use_llm: bool) -> dict:
+    def _analyze(
+        self,
+        code: str,
+        refresh: bool,
+        use_llm: bool,
+        progress: Callable[[str, str], None] | None,
+    ) -> dict:
+        def update(stage: str, message: str) -> None:
+            if progress:
+                progress(stage, message)
+
         started = time.monotonic()
+        update("preparing", "准备分析数据")
         code = normalize_code(code)
         stock = next(
             (s for s in self.settings.config["stocks"] if s["code"] == code), None
@@ -40,6 +56,7 @@ class StockAnalyzer:
         date = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
         warnings = []
         if refresh:
+            update("market", "更新行情数据")
             frame, warnings = MarketService(providers(), self.repository).update(
                 code, self.settings.config["market"]["history_days"]
             )
@@ -49,6 +66,7 @@ class StockAnalyzer:
         if len(frame) < self.settings.config["market"]["minimum_bars"]:
             warnings.append(f"仅有{len(frame)}根K线，部分指标数据不足。")
         technical = calculate(frame)
+        update("indicators", "计算技术指标和风险评分")
         market = {} if frame.empty else clean(frame.iloc[-1].to_dict())
         if market and market["date"] != date:
             warnings.append("报告生成日与行情日期不同，请按最近实际交易日解读。")
@@ -75,6 +93,7 @@ class StockAnalyzer:
             "stale_data": not market or market.get("date") != date,
         }
         if refresh and not frame.empty:
+            update("sources", "更新财务、公告、新闻和行业数据")
             from app.data.enrichment import enrich
 
             extra = enrich(code, frame, self.settings.config["peers"], self.repository)
@@ -135,12 +154,13 @@ class StockAnalyzer:
             prompt_facts[kind] = [
                 {
                     **row,
-                    "raw_text": row.get("raw_text", "")[:12000],
-                    "prompt_text_truncated": len(row.get("raw_text", "")) > 12000,
+                    "raw_text": row.get("raw_text", "")[:3000],
+                    "prompt_text_truncated": len(row.get("raw_text", "")) > 3000,
                 }
-                for row in report[kind]
+                for row in report[kind][:8]
             ]
         try:
+            update("llm", "等待 AI 生成今日总结")
             provider = make_provider(self.settings.config["llm"]) if use_llm else None
         except Exception as exc:
             logging.warning("模型配置不可用：%s", type(exc).__name__)
@@ -153,6 +173,7 @@ class StockAnalyzer:
                 market.get("close"), stable, self.settings.strategy, event_stop=True
             )
         report["comparison"] = compare(previous, report)
+        update("report", "生成日报并写入数据库")
         render_reports(report, self.settings.path("reports"))
         self.repository.save_report(code, date, report)
         logging.info(
