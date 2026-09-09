@@ -68,16 +68,34 @@ def explain(provider: LLMProvider | None, facts: dict) -> dict:
                 number_pattern, json.dumps(facts, ensure_ascii=False)
             )
         ]
-        prose = " ".join(str(value) for key, value in result.items() if key != "events")
-        for token in re.findall(number_pattern, prose):
-            value = Decimal(token)
-            if "." not in token and abs(value) <= 100:
-                continue
-            if not any(
-                abs(value - fact) <= max(Decimal("0.05"), abs(fact) / 1000)
-                for fact in known
-            ):
-                raise ValueError("模型输出包含未提供数值")
+        def sanitize_numbers(value, key: str | None = None):
+            if isinstance(value, dict):
+                return {
+                    child_key: sanitize_numbers(child_value, child_key)
+                    for child_key, child_value in value.items()
+                }
+            if isinstance(value, list):
+                return [sanitize_numbers(item, key) for item in value]
+            if not isinstance(value, str) or key == "id":
+                return value
+
+            def replace(match: re.Match) -> str:
+                token = match.group(0)
+                number = Decimal(token)
+                if "." not in token and abs(number) <= 100:
+                    return token
+                if any(
+                    abs(number - fact)
+                    <= max(Decimal("0.05"), abs(fact) / 1000)
+                    for fact in known
+                ):
+                    return token
+                logging.warning("已移除模型输出中的未提供数值：%s", token)
+                return "相关数值"
+
+            return re.sub(number_pattern, replace, value)
+
+        result = sanitize_numbers(result)
         for event in result["events"]:
             source = next(
                 x

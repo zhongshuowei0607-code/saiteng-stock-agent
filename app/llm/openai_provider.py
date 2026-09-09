@@ -29,24 +29,34 @@ class OpenAIProvider(LLMProvider):
             write=min(self.timeout, 10),
             pool=min(self.timeout, 5),
         )
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": SYSTEM},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        facts, ensure_ascii=False, allow_nan=False
+                    ),
+                },
+            ],
+            "response_format": {"type": "json_object"},
+            "max_tokens": 2600,
+        }
+        if self.key_name == "DEEPSEEK_API_KEY":
+            payload["thinking"] = {"type": "disabled"}
         with httpx.Client(timeout=timeout) as client:
             response = client.post(
                 self.base_url.rstrip("/") + "/chat/completions",
                 headers={"Authorization": "Bearer " + key},
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM},
-                        {
-                            "role": "user",
-                            "content": json.dumps(
-                                facts, ensure_ascii=False, allow_nan=False
-                            ),
-                        },
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "max_tokens": 1600,
-                },
+                json=payload,
             )
             response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+            choice = response.json()["choices"][0]
+            content = choice["message"].get("content")
+            if not content:
+                raise ValueError(
+                    "模型未返回最终正文，结束原因："
+                    + str(choice.get("finish_reason", "unknown"))
+                )
+            return content

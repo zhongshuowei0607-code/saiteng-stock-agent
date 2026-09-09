@@ -154,10 +154,10 @@ class StockAnalyzer:
             prompt_facts[kind] = [
                 {
                     **row,
-                    "raw_text": row.get("raw_text", "")[:3000],
-                    "prompt_text_truncated": len(row.get("raw_text", "")) > 3000,
+                    "raw_text": row.get("raw_text", "")[:2000],
+                    "prompt_text_truncated": len(row.get("raw_text", "")) > 2000,
                 }
-                for row in report[kind][:8]
+                for row in report[kind][:4]
             ]
         try:
             update("llm", "等待 AI 生成今日总结")

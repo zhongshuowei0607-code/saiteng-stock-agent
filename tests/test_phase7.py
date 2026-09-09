@@ -50,7 +50,9 @@ def test_numeric_hallucination():
         def complete(self, facts):
             return json.dumps(data)
 
-    assert explain(Mock(), {"market": {"close": 43.7}})["status"] == "unavailable"
+    result = explain(Mock(), {"market": {"close": 43.7}})
+    assert result["status"] == "generated"
+    assert result["summary"] == "股价相关数值元"
 
 
 @pytest.mark.parametrize(
@@ -97,7 +99,11 @@ def test_llm_wire_contract(monkeypatch, provider, envkey, endpoint):
         {"market": {"close": 43.7}}, ensure_ascii=False
     )
     if envkey:
-        assert seen[0][1]["json"]["max_tokens"] == 1600
+        assert seen[0][1]["json"]["max_tokens"] == 2600
+    if provider is DeepSeekProvider:
+        assert seen[0][1]["json"]["thinking"] == {"type": "disabled"}
+    else:
+        assert "thinking" not in seen[0][1]["json"]
     assert "工具" in seen[0][1]["json"]["messages"][0]["content"]
 
 
