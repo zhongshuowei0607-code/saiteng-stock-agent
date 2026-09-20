@@ -1,6 +1,6 @@
 """交易日确认后运行，无法确认日历时跳过，绝不把工作日等同交易日。"""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 import json
 import logging
@@ -18,6 +18,16 @@ from app.database.backup import backup_database, clean_reports
 class TradingCalendar:
     def __init__(self, cache: Path) -> None:
         self.cache = cache
+
+    def previous_open_day(self, day: date) -> date | None:
+        for offset in range(1, 31):
+            candidate = day - timedelta(days=offset)
+            opened = self.is_open(candidate)
+            if opened is True:
+                return candidate
+            if opened is None:
+                return None
+        return None
 
     def is_open(self, day: date) -> bool | None:
         if day.weekday() >= 5:
@@ -126,8 +136,8 @@ def build_scheduler(
     )
     if repository is not None:
         scheduler.add_job(market_update_job, trigger=CronTrigger(hour=config.get("market_update_hour", 15), minute=config.get("market_update_minute", 10), timezone="Asia/Shanghai"), args=[repository, calendar], id="close_market_update", replace_existing=True, coalesce=True, max_instances=1)
-    if monitor is not None:
-        scheduler.add_job(monitor.poll, "interval", seconds=monitor.settings.config["monitor"]["interval_seconds"], id="realtime_monitor", replace_existing=True, coalesce=True, max_instances=1)
+    if monitor is not None and monitor.settings.config["monitor"].get("enabled", True):
+        scheduler.add_job(monitor.poll, "interval", seconds=monitor.settings.config["monitor"]["interval_seconds"], id="realtime_monitor", replace_existing=True, coalesce=True, max_instances=1, next_run_time=datetime.now(ZoneInfo("Asia/Shanghai")))
     if root is not None:
         scheduler.add_job(maintenance_job, trigger=CronTrigger(hour=config.get("backup_hour", 2), minute=config.get("backup_minute", 0), timezone="Asia/Shanghai"), args=[root, storage or {}], id="database_backup", replace_existing=True, coalesce=True, max_instances=1)
     return scheduler
