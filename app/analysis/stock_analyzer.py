@@ -17,6 +17,7 @@ from .risk_analyzer import risk_score
 from .daily_report import render_reports
 from .locking import analysis_lock
 from .comparison import compare
+from .action_plan import build_action_guide
 from app.data.remote_market import providers
 
 
@@ -89,6 +90,13 @@ class StockAnalyzer:
             "industry": {},
             "moneyflow": {},
             "fundamental": {},
+            "source_status": {},
+            "action_plan": self.settings.strategy.get("action_plan", {}),
+            "position_zones": self.settings.strategy.get("zones", []),
+            "confirmation_score": self.settings.strategy["confirmation_score"],
+            "risk_config": self.settings.config["risk"],
+            "schedule_config": self.settings.config["scheduler"],
+            "monitor_interval_seconds": self.settings.config["monitor"]["interval_seconds"],
             "warnings": warnings,
             "stale_data": not market or market.get("date") != date,
         }
@@ -106,6 +114,11 @@ class StockAnalyzer:
             ):
                 report[key] = extra[key]
             warnings.extend(extra["errors"])
+            report["source_status"] = extra["source_status"]
+            quote = extra.get("quote", {})
+            for key in ("pe", "pb", "total_mv", "circ_mv", "turnover"):
+                if report["market"].get(key) is None and quote.get(key) is not None:
+                    report["market"][key] = quote[key]
             for key in ("fundamental", "industry"):
                 warnings.extend(report[key].get("errors", []))
         if not refresh:
@@ -148,8 +161,28 @@ class StockAnalyzer:
         )
         report["comparison"] = compare(previous, report)
         report = clean(report)
-        # 提示词只携带抓到的事件；原文在数据库完整保留，模型输入限长。
-        prompt_facts = {**report}
+        # 提示词只携带解释所需事实，避免把对比、数据状态等高噪声字段塞给模型。
+        prompt_facts = {
+            key: report[key]
+            for key in (
+                "date",
+                "stock",
+                "market",
+                "technical",
+                "trend",
+                "portfolio",
+                "levels",
+                "stabilization",
+                "watch_zone",
+                "risk",
+                "fundamental",
+                "industry",
+                "moneyflow",
+                "news",
+                "announcements",
+            )
+            if key in report
+        }
         for kind in ("news", "announcements"):
             prompt_facts[kind] = [
                 {
@@ -159,13 +192,19 @@ class StockAnalyzer:
                 }
                 for row in report[kind][:4]
             ]
+        unavailable_reason = None
         try:
             update("llm", "等待 AI 生成今日总结")
             provider = make_provider(self.settings.config["llm"]) if use_llm else None
         except Exception as exc:
             logging.warning("模型配置不可用：%s", type(exc).__name__)
             provider = None
-        report["ai"] = explain(provider, prompt_facts)
+            unavailable_reason = "模型配置不可用，请在设置中核对 Provider、模型名称和 API Key。"
+        report["ai"] = explain(
+            provider,
+            prompt_facts,
+            unavailable_reason=unavailable_reason or ("AI 未启用；已保留程序规则解读。" if not use_llm else None),
+        )
         if any(
             e.get("stop_adding_observation") for e in report["ai"].get("events", [])
         ):
@@ -173,6 +212,8 @@ class StockAnalyzer:
                 market.get("close"), stable, self.settings.strategy, event_stop=True
             )
         report["comparison"] = compare(previous, report)
+        report["technical_as_of"] = market.get("date")
+        report["decision"] = build_action_guide(report)
         update("report", "生成日报并写入数据库")
         render_reports(report, self.settings.path("reports"))
         self.repository.save_report(code, date, report)

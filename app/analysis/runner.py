@@ -43,7 +43,10 @@ class AnalysisRunner:
         try:
             report = self.analyzer.analyze(code, progress=self.progress)
             if self.notifier:
-                self.notifier.daily(report)
+                if hasattr(self.notifier, "action_alert"):
+                    self.notifier.action_alert(report)
+                if hasattr(self.notifier, "daily"):
+                    self.notifier.daily(report)
             self.progress("complete", "分析完成，日报已更新")
         except Exception as exc:
             logging.error("分析任务失败：%s", type(exc).__name__)

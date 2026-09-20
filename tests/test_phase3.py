@@ -1,6 +1,7 @@
 import json
 from app.llm.base import explain, AIReport
 from app.llm.factory import make_provider
+from app.llm.prompts import SYSTEM
 from app.analysis.daily_report import render_reports
 from app.analysis.stock_analyzer import StockAnalyzer
 from app.analysis.risk_analyzer import risk_score
@@ -41,6 +42,57 @@ def test_llm_validation():
     data["summary"] = "立即买入"
     assert explain(Mock(json.dumps(data)), facts)["status"] == "unavailable"
     assert explain(None, facts)["status"] == "unavailable"
+
+
+def test_prompt_prefers_arabic_numbers():
+    assert "优先使用阿拉伯数字" in SYSTEM
+
+
+def test_llm_accepts_fenced_json():
+    class Mock:
+        def complete(self, facts):
+            return "```json\n" + json.dumps(valid_ai(), ensure_ascii=False) + "\n```"
+
+    assert explain(Mock(), {"market": {"close": 49}})["status"] == "generated"
+
+
+def test_title_only_event_keeps_bounded_ai_impact():
+    data = valid_ai()
+    data["events"] = [
+        {
+            "id": "event-1",
+            "category": "股东减持",
+            "importance": 70,
+            "sentiment": "negative",
+            "summary": "公司披露股东减持相关公告。",
+            "impact": "可能影响短期市场情绪。",
+            "horizon": "短期",
+            "affects_thesis": False,
+            "stop_adding_observation": False,
+        }
+    ]
+
+    class Mock:
+        def complete(self, facts):
+            return json.dumps(data, ensure_ascii=False)
+
+    facts = {
+        "market": {"close": 49},
+        "news": [],
+        "announcements": [
+            {
+                "id": "event-1",
+                "title": "股东减持公告",
+                "raw_text": "",
+            }
+        ],
+    }
+    result = explain(Mock(), facts)
+    event = result["events"][0]
+    assert result["status"] == "generated"
+    assert event["affects_thesis"] is None
+    assert event["stop_adding_observation"] is None
+    assert event["impact"].startswith("仅据标题：")
 
 
 def test_risk_missing():

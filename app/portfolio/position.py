@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 
 class Buy(BaseModel):
-    price: Decimal = Field(gt=0)
+    price: Decimal = Field(gt=0, decimal_places=3)
     shares: int = Field(gt=0)
 
 

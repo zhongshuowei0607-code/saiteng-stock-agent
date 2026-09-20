@@ -5,7 +5,7 @@ from app.indicators.technical import calculate, rsi
 from app.indicators.support_resistance import levels
 from app.indicators.stabilization import stabilization
 from app.indicators.trend import trends
-from app.portfolio.position import Position
+from app.portfolio.position import Buy, Position
 from app.portfolio.portfolio_service import watch_state
 from app.config.settings import load_settings
 
@@ -69,6 +69,15 @@ def test_position():
     assert (v["shares"], v["average_cost"], v["remaining_shares"]) == (400, 49, 600)
     assert v["pnl"] == -1600 and v["pnl_pct"] == pytest.approx(-1600 / 19600 * 100)
     assert p.valuation(None)["pnl"] is None
+
+
+def test_trade_price_precision_and_share_integer():
+    trade = Buy(price=49.625, shares=500)
+    assert str(trade.price) == "49.625" and trade.shares == 500
+    with pytest.raises(ValueError):
+        Buy(price=49.6254, shares=500)
+    with pytest.raises(ValueError):
+        Buy(price=49.625, shares=500.5)
 
 
 @pytest.mark.parametrize(

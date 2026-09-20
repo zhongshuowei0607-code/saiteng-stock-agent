@@ -36,4 +36,34 @@ def test_synology_settings_page_supports_legacy_portfolio(tmp_path):
     with TestClient(create_app(settings, repository)) as client:
         response = client.get("/settings")
     assert response.status_code == 200
-    assert "卖出记录 JSON" in response.text
+    assert "买入记录" in response.text
+    assert "卖出记录（可选）" in response.text
+    assert "add-buy" in response.text
+    assert 'step="0.001"' in response.text
+    assert 'class="trade-shares" type="number" min="1" step="1"' in response.text
+
+
+def test_setup_saves_editable_portfolio_and_refreshes_report(tmp_path):
+    shutil.copytree("app/config", tmp_path / "app/config")
+    shutil.copytree("app/web", tmp_path / "app/web")
+    shutil.copy("VERSION", tmp_path / "VERSION")
+    settings, repository = bootstrap(tmp_path)
+    with TestClient(create_app(settings, repository)) as client:
+        response = client.post(
+            "/api/setup",
+            json={
+                "llm_provider": "disabled",
+                "web_username": "owner",
+                "web_password": "a-secure-password",
+                "max_shares": 1000,
+                "buys": [{"price": 49.625, "shares": 500}],
+                "sells": [],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["portfolio"]["shares"] == 500
+        assert response.json()["portfolio"]["average_cost"] == 49.625
+        saved = settings.path("data/portfolio.json").read_text(encoding="utf-8")
+        assert '"price": 49.625' in saved and '"shares": 500' in saved
+        latest = client.get("/api/stock/603283").json()
+        assert latest["portfolio"]["average_cost"] == 49.625

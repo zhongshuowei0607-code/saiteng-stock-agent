@@ -38,7 +38,7 @@ def classify(rows: list[dict]) -> list[dict]:
             x in row["categories"] for x in ("股东减持", "股权质押", "诉讼", "监管问询")
         )
         row["analysis_scope"] = (
-            "全文" if row.get("raw_text") else "仅标题，数据不足，无法判断。"
+            "全文" if row.get("raw_text") else "仅标题，未读取原文；仅分析标题已明确事实。"
         )
         unique[row["id"]] = row
     return list(unique.values())

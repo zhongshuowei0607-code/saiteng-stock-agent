@@ -55,7 +55,10 @@ def quote_is_fresh(report: dict, now: datetime | None = None) -> bool:
     age = (now - quoted).total_seconds()
     return (
         market.get("date") == now.date().isoformat() == quoted.date().isoformat()
-        and 0 <= age <= age_limit
+        # The source timestamp can be a few seconds ahead of the caller's
+        # clock while the HTTP response is in flight. A larger future gap is
+        # rejected as a malformed quote.
+        and -15 <= age <= age_limit
         and trading_hours(quoted)
     )
 

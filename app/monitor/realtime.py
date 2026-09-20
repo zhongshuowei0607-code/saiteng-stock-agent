@@ -52,12 +52,20 @@ class RealtimeMonitor:
             return False
         self.running = True
         try:
-            previous = self.repository.reports(limit=1)
-            if not previous:
-                raise ValueError("尚无日线分析基准，请先更新并生成日报")
-            report = deepcopy(previous[0])
-            baseline = report.get("market", {}).get("date")
+            previous = self.repository.reports()
             expected = self.calendar.previous_open_day(now.date())
+            baseline_report = next(
+                (
+                    item for item in previous
+                    if expected is not None
+                    and item.get("market", {}).get("date") == expected.isoformat()
+                ),
+                previous[0] if previous else None,
+            )
+            if baseline_report is None:
+                raise ValueError("尚无日线分析基准，请先更新并生成日报")
+            report = deepcopy(baseline_report)
+            baseline = report.get("market", {}).get("date")
             report["baseline_current"] = expected is not None and baseline == expected.isoformat()
             quote = fetch_realtime_quote("603283.SH")
             report["technical_as_of"] = baseline

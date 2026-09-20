@@ -15,6 +15,12 @@ def test_api_and_dashboard(tmp_path):
     shutil.copytree(settings.path("app/web"), tmp_path / "app/web")
     (tmp_path / "data").mkdir()
     shutil.copy(settings.path("data/portfolio.json"), tmp_path / "data/portfolio.json")
+    portfolio_data = __import__("json").loads(
+        (tmp_path / "data/portfolio.json").read_text(encoding="utf-8")
+    )
+    expected_average = sum(
+        item["price"] * item["shares"] for item in portfolio_data["buys"]
+    ) / sum(item["shares"] for item in portfolio_data["buys"])
     settings.root = tmp_path
     repo = Repository(create_db(tmp_path / "db"))
     # 测试写出的报告只进入临时目录，模板沿用真实资源。
@@ -26,7 +32,10 @@ def test_api_and_dashboard(tmp_path):
         assert response.status_code == 200 and "赛腾股份" in response.text
         for path in ("", "/history", "/technical", "/portfolio", "/report/latest"):
             assert client.get("/api/stock/603283" + path).status_code == 200
-        assert client.get("/api/stock/603283/portfolio").json()["average_cost"] == 49
+        assert (
+            client.get("/api/stock/603283/portfolio").json()["average_cost"]
+            == expected_average
+        )
         assert client.get("/api/stock/000001").status_code == 404
         assert client.get("/api/reports").status_code == 200
         assert (

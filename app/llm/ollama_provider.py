@@ -1,7 +1,7 @@
 import json
 import os
 import httpx
-from .base import LLMProvider, AIReport
+from .base import LLMProvider, AIReport, LLMOutputError
 from .prompts import SYSTEM
 
 
@@ -30,4 +30,7 @@ class OllamaProvider(LLMProvider):
                 },
             )
             response.raise_for_status()
-            return response.json()["message"]["content"]
+            content = response.json()["message"].get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise LLMOutputError("empty_output", "本地模型没有返回可用正文，请检查模型是否加载完成。")
+            return content

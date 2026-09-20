@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 import json
@@ -9,6 +10,10 @@ from app.data.market_provider import normalize_code
 from app.database.repository import clean
 from app.indicators.technical import calculate
 from app.portfolio.portfolio_service import load_position
+from app.portfolio.position import Buy, Position
+from app.analysis.risk_analyzer import risk_score
+from app.analysis.daily_report import render_reports
+from app.analysis.action_context import current_action_report
 from app.system.resources import resource_snapshot
 import time
 from sqlalchemy import text
@@ -36,12 +41,60 @@ class SetupPayload(BaseModel):
     web_username: str = "admin"
     web_password: str = ""
     max_shares: int = Field(default=1000, gt=0)
-    buys: list[dict] = Field(default_factory=lambda: [{"price": 50, "shares": 200}, {"price": 48, "shares": 200}])
-    sells: list[dict] = Field(default_factory=list)
+    buys: list[Buy] = Field(
+        default_factory=lambda: [
+            Buy(price=50, shares=200),
+            Buy(price=48, shares=200),
+        ]
+    )
+    sells: list[Buy] = Field(default_factory=list)
     monitor_interval: int = Field(default=180, ge=60, le=3600)
     risk_warning: int = Field(default=65, ge=0, le=100)
     risk_critical: int = Field(default=85, ge=0, le=100)
     stabilization_threshold: int = Field(default=7, ge=0, le=10)
+
+
+def _position_payload(payload: SetupPayload) -> dict:
+    return {
+        "code": "603283.SH",
+        "max_shares": payload.max_shares,
+        "buys": [
+            {"price": float(item.price), "shares": item.shares}
+            for item in payload.buys
+        ],
+        "sells": [
+            {"price": float(item.price), "shares": item.shares}
+            for item in payload.sells
+        ],
+    }
+
+
+def _refresh_latest_portfolio(request: Request, position_payload: dict) -> dict | None:
+    repository = request.app.state.repository
+    reports = repository.reports(limit=1)
+    if not reports:
+        return None
+    report = reports[0]
+    frame = repository.history(report["stock"]["code"])
+    price = report.get("market", {}).get("close")
+    if price is None and not frame.empty:
+        price = float(frame.iloc[-1]["close"])
+    position = Position.model_validate(position_payload)
+    valuation = position.valuation(price)
+    report["portfolio"] = valuation
+    monitor = getattr(request.app.state, "monitor", None)
+    if monitor is not None:
+        monitor.latest_report = None
+    report["risk"] = risk_score(report)
+    report["portfolio_updated_at"] = datetime.now(
+        ZoneInfo("Asia/Shanghai")
+    ).isoformat()
+    if report.get("ai", {}).get("status") == "generated":
+        report["ai"]["portfolio_stale"] = True
+    report["decision"] = current_action_report(request.app.state.settings, report)["decision"]
+    render_reports(report, request.app.state.settings.path("reports"))
+    repository.save_report(report["stock"]["code"], report["date"], report)
+    return valuation
 
 
 @router.post("/api/setup")
@@ -59,8 +112,9 @@ def save_setup(payload: SetupPayload, request: Request) -> dict:
         store.set_password(payload.web_password)
     elif not store.is_complete():
         raise HTTPException(400, "首次设置必须填写至少 10 位 Dashboard 密码")
-    position = {"code": "603283.SH", "max_shares": payload.max_shares, "buys": payload.buys, "sells": payload.sells}
+    position = _position_payload(payload)
     request.app.state.settings.path("data/portfolio.json").write_text(json.dumps(position, ensure_ascii=False, indent=2), encoding="utf-8")
+    valuation = _refresh_latest_portfolio(request, position)
     request.app.state.settings.config["monitor"]["interval_seconds"] = payload.monitor_interval
     request.app.state.settings.config["risk"] = {"warning_threshold": payload.risk_warning, "critical_threshold": payload.risk_critical}
     store.apply_llm_config(request.app.state.settings.config)
@@ -69,7 +123,14 @@ def save_setup(payload: SetupPayload, request: Request) -> dict:
     (request.app.state.settings.config_dir / "position_strategy.yaml").write_text(yaml.safe_dump(request.app.state.settings.strategy, allow_unicode=True, sort_keys=False), encoding="utf-8")
     store.set("SETUP_COMPLETE", "true")
     store.apply_environment()
-    return {"status": "configured", "redirect": "/"}
+    scheduler = request.app.state.scheduler
+    if scheduler and scheduler.get_job("realtime_monitor"):
+        scheduler.reschedule_job("realtime_monitor", trigger="interval", seconds=payload.monitor_interval)
+    return {
+        "status": "configured",
+        "redirect": "/",
+        "portfolio": valuation,
+    }
 
 
 @router.post("/api/notifications/test-bark")
@@ -179,6 +240,17 @@ def health(request: Request) -> dict:
 @router.get("/api/status")
 def status(request: Request) -> dict:
     return {"analysis": request.app.state.runner.status(), "monitor": request.app.state.monitor.status() if hasattr(request.app.state, "monitor") else {}}
+
+
+@router.get("/api/action-guide")
+def action_guide(request: Request) -> dict:
+    state = request.app.state
+    rows = state.repository.reports(limit=1)
+    view = current_action_report(state.settings, rows[0] if rows else None, state.monitor)
+    notifications = state.notifier.status()
+    notifications["last_action_email"] = notifications.get("action")
+    notifications["last_daily_email"] = notifications.get("daily")
+    return {"decision": view["decision"], "monitor": state.monitor.status(), "notifications": notifications}
 
 
 @router.get("/api/triggers")

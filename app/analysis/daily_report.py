@@ -68,6 +68,12 @@ LABELS = {
     "stabilization": "企稳解释",
     "conclusion": "结论",
     "status": "状态",
+    "mode": "解读来源",
+    "label": "解读类型",
+    "reason": "状态说明",
+    "reason_code": "状态代码",
+    "retryable": "是否可以重试",
+    "attempts": "生成尝试次数",
     "next_day_focus": "下一交易日观察",
     "bullish_factors": "偏多因素",
     "bearish_factors": "偏空因素",
@@ -119,6 +125,26 @@ def table(value: dict) -> str:
 def section(key: str, value: object) -> str:
     if not value:
         return "数据不足，无法判断。"
+    if key == "ai":
+        mode = value.get("mode")
+        label = (
+            "AI 已生成"
+            if value.get("status") == "generated"
+            else "程序规则解读（AI 未生成）"
+            if mode == "rules"
+            else "AI 未生成"
+        )
+        pieces = [f"**{label}**", display(value.get("summary", "尚无解读。"))]
+        if value.get("reason"):
+            pieces.append("状态说明：" + display(value["reason"]))
+        details = {
+            k: v
+            for k, v in value.items()
+            if k not in ("status", "mode", "label", "summary", "reason", "reason_code", "retryable", "attempts")
+        }
+        if details:
+            pieces.append(section("interpretation", details))
+        return "\n\n".join(pieces)
     if key in ("news", "announcements"):
         return "\n\n".join(
             f"**{item['title']}**\n\n{item.get('date', '')} · {item.get('source', '')} · {item.get('analysis_scope', '')}\n\n原文链接：{item.get('url', '')}"
@@ -215,6 +241,53 @@ def atomic_write(path: Path, content: str) -> None:
             os.unlink(name)
 
 
+def action_guide_markdown(decision: dict | None) -> str:
+    """只呈现已计算的条件计划，静态日报不重新判断当下交易条件。"""
+    if not decision:
+        return "本报告未包含操作计划。请返回首页更新行情，查看当前条件与确认清单。"
+    parts = [
+        "### " + display(decision.get("title", "先核对数据")),
+        display(decision.get("summary", "")),
+        "行情日期：" + display(decision.get("data_as_of") or "缺失")
+        + "；报价时间：" + display(decision.get("quote_time") or "未取得实时报价")
+        + "；指标基准日：" + display(decision.get("technical_as_of") or decision.get("data_as_of") or "缺失"),
+        "以下为报告生成时按已保存策略计算的条件计划，需人工确认后操作；历史报告中的条件可能已失效。",
+    ]
+    if decision.get("blockers"):
+        parts.append("**先解决这些问题**\n\n" + "\n".join("- " + display(item) for item in decision["blockers"]))
+    for item in decision.get("actions", []):
+        parts.extend([
+            "### " + display(item.get("direction", "条件观察")) + " · " + display(item.get("shares", 0)) + " 股（参考计划）",
+            "**什么时间**：" + display(item.get("when", "条件满足后再确认")),
+            "**触发条件**：" + display(item.get("reason", "")),
+            "**价格条件**：" + display(item.get("price_range", "未确定")),
+            f"**持仓变化**：{display(item.get('current_shares'))} → {display(item.get('shares_after'))} 股",
+        ])
+        if item.get("checks"):
+            parts.append("**操作前确认**\n\n" + "\n".join("- □ " + display(check) for check in item["checks"]))
+        if item.get("invalidation"):
+            parts.append("**暂缓条件**：" + display(item["invalidation"]))
+    if not decision.get("actions"):
+        parts.append("当前没有可执行的条件计划，先按时间安排核对行情与持仓。")
+    if decision.get("schedule"):
+        parts.extend([
+            "### 什么时间看什么",
+            "| 时间 | 要做的事 |\n| --- | --- |\n" + "\n".join(
+                f"| {display(item.get('time'))} | {display(item.get('task'))} |"
+                for item in decision["schedule"]
+            ),
+        ])
+    if decision.get("scenarios"):
+        parts.append("### 下一步触发条件")
+        for item in decision["scenarios"]:
+            parts.append("**" + display(item.get("title")) + "**\n\n如果 " + display(item.get("condition")) + "；再 " + display(item.get("action")))
+            if item.get("invalidation"):
+                parts.append("暂缓条件：" + display(item["invalidation"]))
+    if decision.get("checkpoints"):
+        parts.extend(["### 我的确认清单", "\n".join("- □ " + display(item) for item in decision["checkpoints"])])
+    return "\n\n".join(parts)
+
+
 def render_reports(report: dict, root: Path) -> tuple[Path, Path]:
     code = report["stock"]["code"][:6]
     folder = root / code
@@ -222,7 +295,10 @@ def render_reports(report: dict, root: Path) -> tuple[Path, Path]:
     pieces = [
         f"# {code} {report['stock']['name']}每日跟踪报告",
         f"生成日期：{report['date']}；行情日期：{report.get('market', {}).get('date', '缺失')}",
+        "这是保存的历史日报，不会自动刷新。请返回首页查看当前行情、操作计划与通知状态。",
         "数据状态：" + "；".join(report.get("warnings", [])),
+        "## 先看操作计划",
+        action_guide_markdown(report.get("decision")),
     ]
     values = {
         **report,
@@ -257,8 +333,13 @@ def render_reports(report: dict, root: Path) -> tuple[Path, Path]:
     )
     atomic_write(
         page,
-        '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>赛腾股份日报</title><style>body{max-width:1000px;margin:40px auto;padding:20px;font:16px/1.7 system-ui;color:#203040}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f5f8;padding:20px;border-radius:8px}h2{border-bottom:1px solid #ccd5df}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #dce3e9;padding:9px;text-align:left}th{background:#f1f5f8}</style>'
+        '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>赛腾股份日报 · 历史快照</title><style>body{max-width:1000px;margin:40px auto;padding:20px;font:16px/1.7 system-ui;color:#203040}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f5f8;padding:20px;border-radius:8px}h2{border-bottom:1px solid #ccd5df}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #dce3e9;padding:9px;text-align:left;overflow-wrap:anywhere}th{background:#f1f5f8}.history-banner{padding:16px 20px;border:1px solid #ead7b9;border-radius:9px;background:#fff8ed;color:#795a2b}.history-banner a{display:inline-block;color:#244f63;font-weight:600;margin-top:5px}h3{color:#315967}@media(max-width:600px){body{margin:10px auto;padding:16px;font-size:14px}td,th{padding:7px}}</style><body>'
+        + '<aside class="history-banner"><strong>历史日报 · 静态快照</strong><br>生成日期：'
+        + html.escape(str(report["date"]))
+        + ' · 行情日期：'
+        + html.escape(str(report.get("market", {}).get("date", "缺失")))
+        + '<br><a href="/">返回首页，查看当前操作计划 →</a></aside>'
         + body
-        + "</html>",
+        + "</body></html>",
     )
     return md, page

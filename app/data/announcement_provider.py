@@ -35,34 +35,77 @@ def extract_pdf(url: str) -> str:
 class AnnouncementProvider:
     def fetch(self, code: str) -> list[dict]:
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
-        frame = fetch(
-            "stock_zh_a_disclosure_report_cninfo",
-            {
-                "symbol": code[:6],
-                "market": "沪深京",
-                "start_date": (now - timedelta(days=45)).strftime("%Y%m%d"),
-                "end_date": now.strftime("%Y%m%d"),
-            },
-        )
-        rows = []
-        if not frame.empty:
-            frame = frame.sort_values("公告时间", ascending=False)
-        for i, row in enumerate(frame.to_dict("records")[:15]):
-            item = {
-                "title": str(row.get("公告标题", "")),
-                "date": str(row.get("公告时间", "")),
-                "source": "巨潮资讯",
-                "url": str(row.get("公告链接", "")),
-                "raw_text": "",
-            }
-            if i < 3:
-                try:
-                    item["raw_text"] = extract_pdf(item["url"])
-                except Exception:
-                    item["text_status"] = "原文提取失败"
-            item["text_status"] = item.get(
-                "text_status",
-                "已提取（最多80页）" if item["raw_text"] else "原文未获取",
+        start = (now - timedelta(days=45)).strftime("%Y%m%d")
+        end = now.strftime("%Y%m%d")
+        errors = []
+
+        # 东方财富公告接口通常不要求 token，先作为实时兜底；巨潮接口成功时
+        # 再尝试提取官方 PDF，保留更完整的原文证据。
+        try:
+            frame = fetch(
+                "stock_individual_notice_report",
+                {
+                    "security": code[:6],
+                    "symbol": "全部",
+                    "begin_date": start,
+                    "end_date": end,
+                },
             )
-            rows.append(item)
-        return classify(rows)
+            rows = []
+            if not frame.empty:
+                frame = frame.sort_values("公告日期", ascending=False)
+            for row in frame.to_dict("records")[:15]:
+                rows.append(
+                    {
+                        "title": str(row.get("公告标题", "")),
+                        "date": str(row.get("公告日期", ""))[:10],
+                        "source": "东方财富公告",
+                        "url": str(row.get("网址", "")),
+                        "raw_text": "",
+                        "text_status": "仅标题（东方财富）",
+                    }
+                )
+            if rows:
+                return classify(rows)
+        except Exception as exc:
+            errors.append("东方财富公告：" + type(exc).__name__)
+
+        try:
+            frame = fetch(
+                "stock_zh_a_disclosure_report_cninfo",
+                {
+                    "symbol": code[:6],
+                    "market": "沪深京",
+                    "start_date": start,
+                    "end_date": end,
+                },
+            )
+            rows = []
+            if not frame.empty:
+                frame = frame.sort_values("公告时间", ascending=False)
+            for i, row in enumerate(frame.to_dict("records")[:15]):
+                item = {
+                    "title": str(row.get("公告标题", "")),
+                    "date": str(row.get("公告时间", "")),
+                    "source": "巨潮资讯",
+                    "url": str(row.get("公告链接", "")),
+                    "raw_text": "",
+                }
+                if i < 3:
+                    try:
+                        item["raw_text"] = extract_pdf(item["url"])
+                    except Exception:
+                        item["text_status"] = "原文提取失败"
+                item["text_status"] = item.get(
+                    "text_status",
+                    "已提取（最多80页）" if item["raw_text"] else "原文未获取",
+                )
+                rows.append(item)
+            if rows:
+                return classify(rows)
+        except Exception as exc:
+            errors.append("巨潮公告：" + type(exc).__name__)
+
+        if errors:
+            raise RuntimeError("；".join(errors))
+        return []

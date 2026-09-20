@@ -18,6 +18,7 @@ from app.database.db import create_db
 from app.database.repository import Repository
 from app.analysis.stock_analyzer import StockAnalyzer
 from app.analysis.runner import AnalysisRunner
+from app.analysis.action_context import current_action_report
 from app.portfolio.portfolio_service import load_position
 from app.api.routes import router
 from app.config.secure_store import create_secure_settings
@@ -169,14 +170,15 @@ def create_app(
         rows = repository.reports(limit=30)
         report = rows[0] if rows else None
         if report:
+            report = current_action_report(settings, report, app.state.monitor)
+        if report:
             for key in ("close", "pct_change"):
                 report.setdefault("market", {}).setdefault(key, None)
         today = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
-        portfolio = (
-            report["portfolio"]
-            if report
-            else load_position(settings.path("data/portfolio.json")).valuation(None)
-        )
+        price = report.get("market", {}).get("close") if report else None
+        portfolio = load_position(
+            settings.path("data/portfolio.json")
+        ).valuation(price)
         return templates.TemplateResponse(
             request=request,
             name="dashboard_synology.html",

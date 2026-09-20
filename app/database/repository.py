@@ -63,12 +63,33 @@ class Repository:
                     Document(id=key, code=code, kind=kind, payload=clean(row))
                 )
 
+    def documents(self, code: str, kind: str, limit: int | None = None) -> list[dict]:
+        query = (
+            select(Document)
+            .where(Document.code == code, Document.kind == kind)
+        )
+        with Session(self.engine) as session:
+            rows = [row.payload for row in session.scalars(query).all()]
+        rows.sort(key=lambda row: str(row.get("date", "")), reverse=True)
+        return rows[:limit] if limit else rows
+
     def save_fundamentals(self, code: str, rows: list[dict]) -> None:
         with Session(self.engine) as session, session.begin():
             for row in rows:
                 session.merge(
                     Fundamental(code=code, date=row["end_date"], payload=clean(row))
                 )
+
+    def fundamentals(self, code: str, limit: int | None = None) -> list[dict]:
+        query = (
+            select(Fundamental)
+            .where(Fundamental.code == code)
+            .order_by(Fundamental.date.desc())
+        )
+        if limit:
+            query = query.limit(limit)
+        with Session(self.engine) as session:
+            return [row.payload for row in session.scalars(query).all()]
 
     def trigger_state(self, signal: str) -> dict | None:
         with self.engine.connect() as connection:

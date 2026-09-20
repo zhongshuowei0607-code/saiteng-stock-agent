@@ -63,9 +63,13 @@ def main() -> None:
         from app.scheduler.jobs import TradingCalendar, daily_job
         from app.analysis.stock_analyzer import StockAnalyzer
         from app.analysis.runner import AnalysisRunner
+        from app.notifications import NotificationService
 
         success = daily_job(
-            AnalysisRunner(StockAnalyzer(settings, repository)),
+            AnalysisRunner(
+                StockAnalyzer(settings, repository),
+                NotificationService(settings.root),
+            ),
             TradingCalendar(settings.path("data/trading_calendar.json")),
         )
         print(
@@ -80,6 +84,10 @@ def main() -> None:
         report = StockAnalyzer(settings, repository).analyze(
             args.code, refresh=not args.offline, use_llm=not args.offline
         )
+        if not args.offline:
+            from app.notifications import NotificationService
+
+            NotificationService(settings.root).action_alert(report)
         print(
             json.dumps(
                 {

@@ -1,6 +1,7 @@
 from app.analysis.event_analyzer import classify
 from app.data.fundamental_provider import compare_financials
 from app.data.industry_provider import comparison
+from app.data.announcement_provider import AnnouncementProvider
 from app.llm.base import explain
 from test_phase2 import sample
 from test_phase3 import valid_ai
@@ -17,6 +18,28 @@ def test_events_dedupe():
     result = classify([row, row])
     assert len(result) == 1 and result[0]["risk_flag"]
     assert "仅标题" in result[0]["analysis_scope"]
+
+
+def test_announcement_falls_back_to_eastmoney(monkeypatch):
+    import pandas as pd
+
+    def fake_fetch(name, *args, **kwargs):
+        assert name == "stock_individual_notice_report"
+        return pd.DataFrame(
+            [
+                {
+                    "公告标题": "关于回购公司股份的公告",
+                    "公告日期": "2026-09-18",
+                    "网址": "https://data.eastmoney.com/notices/detail/603283/1.html",
+                }
+            ]
+        )
+
+    monkeypatch.setattr("app.data.announcement_provider.fetch", fake_fetch)
+    rows = AnnouncementProvider().fetch("603283.SH")
+    assert len(rows) == 1
+    assert rows[0]["source"] == "东方财富公告"
+    assert rows[0]["text_status"] == "仅标题（东方财富）"
 
 
 def test_financial_same_period():

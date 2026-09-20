@@ -221,8 +221,27 @@ def test_moneyflow_units(monkeypatch):
     import pandas as pd
     from app.data.moneyflow_provider import moneyflow
 
+    monkeypatch.setenv("TUSHARE_TOKEN", "test-token")
     monkeypatch.setattr(
         "app.data.moneyflow_provider.fetch",
         lambda *args: pd.DataFrame([{"trade_date": "20260904", "net_mf_amount": -50}]),
     )
     assert moneyflow("603283.SH", "2026-09-04")["net_amount"] == -500000
+
+
+def test_moneyflow_falls_back_to_eastmoney(monkeypatch):
+    import pandas as pd
+    from app.data.moneyflow_provider import moneyflow
+
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+
+    def fake_fetch(name, *args, **kwargs):
+        assert name == "stock_individual_fund_flow"
+        return pd.DataFrame(
+            [{"日期": "2026-09-04", "主力净流入-净额": -123456.0}]
+        )
+
+    monkeypatch.setattr("app.data.moneyflow_provider.fetch", fake_fetch)
+    result = moneyflow("603283.SH", "2026-09-04")
+    assert result["net_amount"] == -123456.0
+    assert result["source"] == "东方财富个股资金流"

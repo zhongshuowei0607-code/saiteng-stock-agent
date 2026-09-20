@@ -1,15 +1,239 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Stock Agent 设置</title><link rel="stylesheet" href="/static/style.css"><style>form label{display:block;margin:14px 0}input,select,textarea{display:block;width:100%;max-width:620px;padding:10px;margin-top:5px}textarea{min-height:90px}</style></head>
-<body><main><header><div><div class="eyebrow">Stock Agent v1.0.0</div><h1>{{ '系统设置' if editing else '首次运行向导' }}</h1></div></header><div class="notice">密钥加密保存，环境变量优先；LLM 可保持 disabled。</div>
-<form id="setup" class="panel">
-<h2>Step 1 · 数据源</h2><label>Tushare Token<input type="password" name="tushare_token" placeholder="{{ masked('TUSHARE_TOKEN') }}"></label>
-<h2>Step 2 · LLM</h2><label>Provider<select name="llm_provider">{% for name in ['disabled','deepseek','openai','ollama'] %}<option {{ 'selected' if config.llm.provider==name }}>{{ name }}</option>{% endfor %}</select></label><label>模型<input name="llm_model" value="{{ config.llm.model }}"></label><label>DeepSeek Key<input type="password" name="deepseek_api_key" placeholder="{{ masked('DEEPSEEK_API_KEY') }}"></label><label>OpenAI Key<input type="password" name="openai_api_key" placeholder="{{ masked('OPENAI_API_KEY') }}"></label>
-<h2>Step 3 · Bark</h2><label><input type="checkbox" name="bark_enabled" {{ 'checked' if values.BARK_ENABLED | lower == 'true' }}> 启用 Bark</label><label>Device Key<input type="password" name="bark_device_key" placeholder="{{ masked('BARK_DEVICE_KEY') }}"></label>
-<h2>Step 4 · Email</h2><label><input type="checkbox" name="email_enabled" {{ 'checked' if values.EMAIL_ENABLED | lower == 'true' }}> 启用 Email</label><div class="details-grid"><label>SMTP Host<input name="smtp_host" value="{{ values.SMTP_HOST or 'smtp.qq.com' }}"></label><label>端口<input name="smtp_port" type="number" value="{{ values.SMTP_PORT or 465 }}"></label><label>用户名<input name="smtp_user" value="{{ values.SMTP_USER }}"></label><label>授权码<input name="smtp_password" type="password" placeholder="{{ masked('SMTP_PASSWORD') }}"></label><label>发件人<input name="smtp_from" value="{{ values.SMTP_FROM }}"></label><label>收件人<input name="smtp_to" value="{{ values.SMTP_TO }}"></label></div>
-<h2>Step 5 · 持仓与规则</h2><label>最大计划持仓<input name="max_shares" type="number" value="{{ portfolio.max_shares }}"></label><label>买入记录 JSON<textarea name="buys">{{ portfolio.buys | tojson }}</textarea></label><label>卖出记录 JSON<textarea name="sells">{{ portfolio.sells | tojson }}</textarea></label><div class="details-grid"><label>监控间隔（秒）<input name="monitor_interval" type="number" min="60" value="{{ config.monitor.interval_seconds }}"></label><label>风险提醒阈值<input name="risk_warning" type="number" value="{{ config.risk.warning_threshold }}"></label><label>严重风险阈值<input name="risk_critical" type="number" value="{{ config.risk.critical_threshold }}"></label><label>企稳阈值<input name="stabilization_threshold" type="number" value="{{ strategy.confirmation_score }}"></label></div>
-<h2>Step 6 · 登录</h2><label>用户名<input name="web_username" value="{{ values.WEB_USERNAME or 'admin' }}"></label><label>密码（首次至少10位；编辑时留空保持原密码）<input name="web_password" type="password" {{ 'required minlength=10' if not editing }}></label><button type="submit">保存并开始运行</button> <button type="button" id="test-bark">测试 Bark</button> <button type="button" id="test-email">测试 Email</button><p id="result" role="status"></p></form>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Stock Agent 设置</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    form label{display:block;margin:14px 0}
+    input,select,textarea{display:block;width:100%;max-width:620px;padding:10px;margin-top:5px}
+    .trade-editor{border-top:1px solid #e3e8ec;margin-top:20px;padding-top:18px}
+    .trade-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(150px,1fr) auto;gap:12px;align-items:end;margin:10px 0}
+    .trade-row label{margin:0}
+    .trade-row input{max-width:none}
+    .trade-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;background:#f3f6f8;padding:14px;border-radius:8px;margin:14px 0}
+    .trade-summary span{font-size:13px;color:#748691}
+    .trade-summary b{display:block;color:#203847;font-size:18px;margin-top:3px}
+    .secondary{background:#e7edf1;color:#294250}
+    .danger{background:#f7e8e7;color:#9b413d}
+    .check-row{display:flex;align-items:center;gap:10px;margin:20px 0}
+    .check-row input{width:auto;margin:0}
+    .actions-row{display:flex;gap:10px;flex-wrap:wrap}
+    @media(max-width:700px){
+      main{padding:16px}
+      .trade-row{grid-template-columns:1fr 1fr}
+      .trade-row button{grid-column:1/-1}
+      .trade-summary{grid-template-columns:1fr 1fr}
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="eyebrow">Stock Agent v1.0.0</div>
+      <h1>{{ '系统设置' if editing else '首次运行向导' }}</h1>
+    </div>
+  </header>
+  <div class="notice">密钥加密保存，环境变量优先；LLM 可保持 disabled。</div>
+  <form id="setup" class="panel">
+    <h2>Step 1 · 数据源</h2>
+    <label>Tushare Token<input type="password" name="tushare_token" placeholder="{{ masked('TUSHARE_TOKEN') }}"></label>
+
+    <h2>Step 2 · LLM</h2>
+    <label>Provider
+      <select name="llm_provider">
+        {% for name in ['disabled','deepseek','openai','ollama'] %}
+        <option {{ 'selected' if config.llm.provider==name }}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>模型<input name="llm_model" value="{{ config.llm.model }}"></label>
+    <label>DeepSeek Key<input type="password" name="deepseek_api_key" placeholder="{{ masked('DEEPSEEK_API_KEY') }}"></label>
+    <label>OpenAI Key<input type="password" name="openai_api_key" placeholder="{{ masked('OPENAI_API_KEY') }}"></label>
+
+    <h2>Step 3 · Bark</h2>
+    <label><input type="checkbox" name="bark_enabled" {{ 'checked' if values.BARK_ENABLED | lower == 'true' }}> 启用 Bark</label>
+    <label>Device Key<input type="password" name="bark_device_key" placeholder="{{ masked('BARK_DEVICE_KEY') }}"></label>
+
+    <h2>Step 4 · Email</h2>
+    <label><input type="checkbox" name="email_enabled" {{ 'checked' if values.EMAIL_ENABLED | lower == 'true' }}> 启用 Email</label>
+    <div class="details-grid">
+      <label>SMTP Host<input name="smtp_host" value="{{ values.SMTP_HOST or 'smtp.qq.com' }}"></label>
+      <label>端口<input name="smtp_port" type="number" min="1" max="65535" step="1" value="{{ values.SMTP_PORT or 465 }}"></label>
+      <label>用户名<input name="smtp_user" value="{{ values.SMTP_USER }}"></label>
+      <label>授权码<input name="smtp_password" type="password" placeholder="{{ masked('SMTP_PASSWORD') }}"></label>
+      <label>发件人<input name="smtp_from" value="{{ values.SMTP_FROM }}"></label>
+      <label>收件人<input name="smtp_to" value="{{ values.SMTP_TO }}"></label>
+    </div>
+
+    <h2>Step 5 · 持仓与规则</h2>
+    <label>最大计划持仓（股）<input id="max-shares" name="max_shares" type="number" min="1" step="1" value="{{ portfolio.max_shares }}" required></label>
+    <section class="trade-editor">
+      <h3>买入记录</h3>
+      <div id="buy-rows"></div>
+      <button type="button" class="secondary" id="add-buy">添加买入记录</button>
+      <div class="trade-summary" aria-live="polite">
+        <span>当前持仓<b id="summary-shares">0 股</b></span>
+        <span>持仓成本<b id="summary-cost">0 元</b></span>
+        <span>平均成本<b id="summary-average">0 元</b></span>
+        <span>剩余计划<b id="summary-remaining">0 股</b></span>
+      </div>
+      <details>
+        <summary>卖出记录（可选）</summary>
+        <div id="sell-rows"></div>
+        <button type="button" class="secondary" id="add-sell">添加卖出记录</button>
+      </details>
+    </section>
+    <div class="details-grid">
+      <label>监控间隔（秒）<input name="monitor_interval" type="number" min="60" max="3600" step="1" value="{{ config.monitor.interval_seconds }}"></label>
+      <label>风险提醒阈值<input name="risk_warning" type="number" min="0" max="100" step="1" value="{{ config.risk.warning_threshold }}"></label>
+      <label>严重风险阈值<input name="risk_critical" type="number" min="0" max="100" step="1" value="{{ config.risk.critical_threshold }}"></label>
+      <label>企稳阈值<input name="stabilization_threshold" type="number" min="0" max="10" step="1" value="{{ strategy.confirmation_score }}"></label>
+    </div>
+
+    <h2>Step 6 · 登录</h2>
+    <label>用户名<input name="web_username" value="{{ values.WEB_USERNAME or 'admin' }}"></label>
+    <label>密码（首次至少10位；编辑时留空保持原密码）<input name="web_password" type="password" {{ 'required minlength=10' if not editing }}></label>
+    <label class="check-row"><input type="checkbox" id="reanalyze" checked> 保存后重新分析并更新日报</label>
+    <div class="actions-row">
+      <button type="submit">保存设置</button>
+      <button type="button" class="secondary" id="test-bark">测试 Bark</button>
+      <button type="button" class="secondary" id="test-email">测试 Email</button>
+    </div>
+    <p id="result" role="status"></p>
+  </form>
+</main>
 <script>
-const form=document.getElementById('setup'), result=document.getElementById('result'), val=n=>new FormData(form).get(n)||'';
-form.addEventListener('submit',async e=>{e.preventDefault();let buys,sells;try{buys=JSON.parse(val('buys'));sells=JSON.parse(val('sells'))}catch{result.textContent='持仓 JSON 格式错误';return}const f=new FormData(form),body={tushare_token:val('tushare_token'),llm_provider:val('llm_provider'),llm_model:val('llm_model'),deepseek_api_key:val('deepseek_api_key'),openai_api_key:val('openai_api_key'),bark_enabled:f.has('bark_enabled'),bark_device_key:val('bark_device_key'),email_enabled:f.has('email_enabled'),smtp_host:val('smtp_host'),smtp_port:+val('smtp_port'),smtp_use_ssl:true,smtp_user:val('smtp_user'),smtp_password:val('smtp_password'),smtp_from:val('smtp_from'),smtp_to:val('smtp_to'),web_username:val('web_username'),web_password:val('web_password'),max_shares:+val('max_shares'),buys,sells,monitor_interval:+val('monitor_interval'),risk_warning:+val('risk_warning'),risk_critical:+val('risk_critical'),stabilization_threshold:+val('stabilization_threshold')};const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),d=await r.json();result.textContent=r.ok?'保存成功，请重新打开首页并登录':(d.detail||'保存失败');if(r.ok)setTimeout(()=>location.href='/',900)});
-for(const kind of ['bark','email'])document.getElementById('test-'+kind).onclick=async()=>{const r=await fetch('/api/notifications/test-'+kind,{method:'POST'});result.textContent=r.ok&&((await r.json()).ok)?'测试发送成功':'测试未发送，请检查配置'};
-</script></main></body></html>
+const form=document.getElementById('setup');
+const result=document.getElementById('result');
+const maxShares=document.getElementById('max-shares');
+const buyRows=document.getElementById('buy-rows');
+const sellRows=document.getElementById('sell-rows');
+const initialBuys={{ portfolio.buys | tojson }};
+const initialSells={{ portfolio.sells | tojson }};
+
+function makeRow(container,value={}){
+  const row=document.createElement('div');
+  row.className='trade-row';
+  row.innerHTML='<label>成交价（元）<input class="trade-price" type="number" min="0.001" step="0.001" inputmode="decimal" required></label><label>股数<input class="trade-shares" type="number" min="1" step="1" inputmode="numeric" required></label><button type="button" class="danger remove-trade">移除</button>';
+  row.querySelector('.trade-price').value=value.price??'';
+  row.querySelector('.trade-shares').value=value.shares??'';
+  row.querySelector('.remove-trade').addEventListener('click',()=>{row.remove();updateSummary()});
+  row.addEventListener('input',updateSummary);
+  container.appendChild(row);
+  updateSummary();
+}
+
+function readRows(container){
+  return [...container.querySelectorAll('.trade-row')].map(row=>({
+    price:Number(row.querySelector('.trade-price').value),
+    shares:Number(row.querySelector('.trade-shares').value)
+  }));
+}
+
+function updateSummary(){
+  const buys=readRows(buyRows),sells=readRows(sellRows);
+  const bought=buys.reduce((sum,item)=>sum+(Number.isFinite(item.shares)?item.shares:0),0);
+  const sold=sells.reduce((sum,item)=>sum+(Number.isFinite(item.shares)?item.shares:0),0);
+  const shares=Math.max(0,bought-sold);
+  const cost=buys.reduce((sum,item)=>sum+(Number.isFinite(item.price)&&Number.isFinite(item.shares)?item.price*item.shares:0),0);
+  const average=bought?cost/bought:0;
+  const maximum=Number(maxShares.value)||0;
+  document.getElementById('summary-shares').textContent=shares.toLocaleString('zh-CN')+' 股';
+  document.getElementById('summary-cost').textContent=cost.toLocaleString('zh-CN',{maximumFractionDigits:3})+' 元';
+  document.getElementById('summary-average').textContent=average.toLocaleString('zh-CN',{maximumFractionDigits:3})+' 元';
+  document.getElementById('summary-remaining').textContent=Math.max(0,maximum-shares).toLocaleString('zh-CN')+' 股';
+}
+
+initialBuys.forEach(item=>makeRow(buyRows,item));
+initialSells.forEach(item=>makeRow(sellRows,item));
+if(!initialBuys.length)makeRow(buyRows);
+maxShares.addEventListener('input',updateSummary);
+document.getElementById('add-buy').addEventListener('click',()=>makeRow(buyRows));
+document.getElementById('add-sell').addEventListener('click',()=>makeRow(sellRows));
+
+function validRows(rows){
+  return rows.every(item=>Number.isFinite(item.price)&&item.price>0&&Number.isInteger(item.shares)&&item.shares>0);
+}
+
+async function waitForAnalysis(){
+  for(let elapsed=0;elapsed<240;elapsed+=2){
+    await new Promise(resolve=>setTimeout(resolve,2000));
+    const response=await fetch('/api/status');
+    if(!response.ok)throw new Error('无法读取分析状态');
+    const state=(await response.json()).analysis;
+    result.textContent=state.running?`正在按新持仓重新分析… ${Math.round(state.elapsed_seconds||elapsed+2)} 秒`:'分析完成';
+    if(!state.running){
+      if(state.error)throw new Error('重新分析失败：'+state.error);
+      location.href='/';
+      return;
+    }
+  }
+  throw new Error('分析仍在后台运行，请稍后刷新首页');
+}
+
+form.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const buys=readRows(buyRows),sells=readRows(sellRows);
+  if(!validRows(buys)||!validRows(sells)){
+    result.textContent='请填写有效的价格和股数';
+    return;
+  }
+  const data=new FormData(form);
+  const value=name=>data.get(name)||'';
+  const body={
+    tushare_token:value('tushare_token'),
+    llm_provider:value('llm_provider'),
+    llm_model:value('llm_model'),
+    deepseek_api_key:value('deepseek_api_key'),
+    openai_api_key:value('openai_api_key'),
+    bark_enabled:data.has('bark_enabled'),
+    bark_device_key:value('bark_device_key'),
+    email_enabled:data.has('email_enabled'),
+    smtp_host:value('smtp_host'),
+    smtp_port:Number(value('smtp_port')),
+    smtp_use_ssl:true,
+    smtp_user:value('smtp_user'),
+    smtp_password:value('smtp_password'),
+    smtp_from:value('smtp_from'),
+    smtp_to:value('smtp_to'),
+    web_username:value('web_username'),
+    web_password:value('web_password'),
+    max_shares:Number(value('max_shares')),
+    buys,
+    sells,
+    monitor_interval:Number(value('monitor_interval')),
+    risk_warning:Number(value('risk_warning')),
+    risk_critical:Number(value('risk_critical')),
+    stabilization_threshold:Number(value('stabilization_threshold'))
+  };
+  result.textContent='正在保存持仓…';
+  try{
+    const response=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const responseData=await response.json();
+    if(!response.ok)throw new Error(responseData.detail||'保存失败');
+    if(document.getElementById('reanalyze').checked){
+      result.textContent='持仓已保存，正在启动重新分析…';
+      const started=await fetch('/api/stock/603283/analyze',{method:'POST'});
+      if(!started.ok)throw new Error('无法启动重新分析');
+      await waitForAnalysis();
+    }else{
+      result.textContent='持仓与规则已保存';
+      setTimeout(()=>{location.href='/'},700);
+    }
+  }catch(error){
+    result.textContent=error.message;
+  }
+});
+
+for(const kind of ['bark','email']){
+  document.getElementById('test-'+kind).addEventListener('click',async()=>{
+    const response=await fetch('/api/notifications/test-'+kind,{method:'POST'});
+    result.textContent=response.ok&&((await response.json()).ok)?'测试发送成功':'测试未发送，请检查配置';
+  });
+}
+</script>
+</body>
+</html>
