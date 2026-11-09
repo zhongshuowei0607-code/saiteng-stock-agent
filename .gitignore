@@ -14,3 +14,5 @@ data/notification_state.json
 data/walkforward_shadow.json
 
 .venv.backup-*/
+.env.localbackup
+Dockerfile.railway-backup
