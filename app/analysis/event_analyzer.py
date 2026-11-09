@@ -18,6 +18,8 @@ CATEGORIES = {
     "收购": ["收购"],
     "诉讼": ["诉讼", "仲裁"],
     "监管问询": ["问询", "监管", "处罚"],
+    "控制权变更": ["控制权", "实际控制人", "离婚", "权益变动"],
+    "退市风险": ["退市", "风险警示"],
     "董监高变更": ["辞职", "聘任", "董事变更", "高级管理人员变更"],
 }
 
@@ -29,13 +31,15 @@ def classify(rows: list[dict]) -> list[dict]:
         row["id"] = hashlib.sha256(
             (row.get("title", "") + row.get("url", "") + row.get("date", "")).encode()
         ).hexdigest()[:20]
+        text = str(row.get("title", "")) + " " + str(row.get("raw_text", ""))
         row["categories"] = [
             name
             for name, words in CATEGORIES.items()
-            if any(word in row["title"] for word in words)
+            if any(word in text for word in words)
         ] or ["其他"]
         row["risk_flag"] = any(
-            x in row["categories"] for x in ("股东减持", "股权质押", "诉讼", "监管问询")
+            x in row["categories"]
+            for x in ("股东减持", "股权质押", "诉讼", "监管问询", "控制权变更", "退市风险")
         )
         row["analysis_scope"] = (
             "全文" if row.get("raw_text") else "仅标题，未读取原文；仅分析标题已明确事实。"

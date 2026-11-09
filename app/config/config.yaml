@@ -4,10 +4,17 @@ llm:
   timeout: 60
 scheduler:
   enabled: true
-  hour: 17
-  minute: 30
+  hour: 15
+  minute: 5
+  retry_hour: 15
+  retry_minute: 20
   market_update_hour: 15
   market_update_minute: 10
+  intraday:
+    enabled: true
+    morning_open: "09:35"
+    morning_close: "11:35"
+    afternoon_open: "13:05"
   backup_hour: 2
   backup_minute: 0
 monitor:
@@ -34,8 +41,26 @@ market:
   timeout: 25
 peers:
   688097.SH: 博众精工
+  002475.SZ: 立讯精密（立讯科技）
+  601138.SH: 工业富联（富士康）
   002957.SZ: 科瑞技术
   301312.SZ: 智立方
   300545.SZ: 联得装备
   301360.SZ: 荣旗科技
   688003.SH: 天准科技
+references:
+  - name: 苹果
+    symbol: AAPL
+    type: 全球客户 / 需求端
+    note: 消费电子终端需求与供应链资本开支的重要观察对象；本工具不抓取美股行情，只作定性参考。
+    source: https://www.apple.com/
+  - name: 思榕智能装备
+    symbol: null
+    type: 非上市设备商
+    note: 非上市自动化设备企业，作为苹果产业链设备端的定性参考；无公开财报，信息有限。
+    source: https://mp.weixin.qq.com/
+  - name: 杰士德
+    symbol: null
+    type: 非上市精密制造 / 自动化设备
+    note: 非上市精密制造与自动化设备企业，公开信息显示与苹果供应链有互动；无公开财报，需以公司公告和实地信息为准。
+    source: https://www.justech.com/

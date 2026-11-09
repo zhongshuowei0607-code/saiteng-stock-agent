@@ -18,10 +18,13 @@ SECTIONS = [
     ("八、公告", "announcements"),
     ("九、新闻", "news"),
     ("十、行业强弱", "industry"),
-    ("十一、基本面变化", "fundamental"),
-    ("十二、风险评分", "risk"),
-    ("十三、AI总结", "ai"),
-    ("十四、下一交易日重点观察", "focus"),
+    ("十一、行业与客户参考", "references"),
+    ("十二、基本面变化", "fundamental"),
+    ("十三、风险评分", "risk"),
+    ("十四、风险预算与账户", "risk_budget"),
+    ("十五、因子快照（研究）", "factor_snapshot"),
+    ("十六、AI总结", "ai"),
+    ("十七、下一交易日重点观察", "focus"),
 ]
 
 LABELS = {
@@ -49,6 +52,21 @@ LABELS = {
     "pnl_pct": "浮盈亏比例（%）",
     "max_shares": "最大计划股数",
     "remaining_shares": "剩余计划股数",
+    "account_equity": "账户权益（元）",
+    "account_equity_source": "权益口径",
+    "cash": "可用现金（元）",
+    "available_shares": "可用股数",
+    "risk_per_trade_pct": "单笔风险（%）",
+    "risk_amount": "单笔风险金额（元）",
+    "stop_distance": "ATR 止损距离（元）",
+    "stop_price": "参考止损价",
+    "risk_budget_shares": "风险预算总股数",
+    "current_risk_amount": "当前风险金额（元）",
+    "current_risk_pct": "当前风险（%）",
+    "max_add_by_risk": "按风险可加股数",
+    "max_add_by_cash": "按现金可加股数",
+    "max_add_by_cap": "按上限可加股数",
+    "max_add_shares": "综合可加股数",
     "position_ratio": "计划仓位比例",
     "over_limit": "是否超过计划上限",
     "short": "短线",
@@ -181,6 +199,36 @@ def section(key: str, value: object) -> str:
             + "\n\n"
             + value.get("note", "")
         )
+    if key == "factor_snapshot":
+        if not value.get("factors"):
+            return "数据不足，无法判断。"
+        lines = [
+            display(value.get("summary", "")),
+            "",
+            "| 因子 | 得分 | 权重 | 说明 |",
+            "| --- | ---: | ---: | --- |",
+        ]
+        for item in value.get("factors", []):
+            lines.append(
+                f"| {display(item.get('label'))} | "
+                f"{display(item.get('score')) if item.get('available') else '缺失'} | "
+                f"{display(item.get('weight'))} | {display(item.get('reason'))} |"
+            )
+        if value.get("missing"):
+            lines.append("\n缺失因子：" + "、".join(value["missing"]))
+        lines.append("\n" + display(value.get("note", "")))
+        return "\n".join(lines)
+    if key == "references":
+        return "\n\n".join(
+            "**"
+            + display(item.get("name"))
+            + "**（"
+            + display(item.get("type", "参考"))
+            + "）\n\n"
+            + display(item.get("note", ""))
+            + ("\n\n来源：" + display(item.get("source")) if item.get("source") else "")
+            for item in value
+        )
     if key == "industry":
         text = value.get("relative", "数据不足，无法判断。")
         if value.get("rows"):
@@ -292,23 +340,29 @@ def render_reports(report: dict, root: Path) -> tuple[Path, Path]:
     code = report["stock"]["code"][:6]
     folder = root / code
     folder.mkdir(parents=True, exist_ok=True)
+    basis = "前复权" if report.get("technical_basis") == "qfq" else "不复权"
     pieces = [
         f"# {code} {report['stock']['name']}每日跟踪报告",
-        f"生成日期：{report['date']}；行情日期：{report.get('market', {}).get('date', '缺失')}",
+        f"生成日期：{report['date']}；行情日期：{report.get('market', {}).get('date', '缺失')}；指标口径：{basis}",
         "这是保存的历史日报，不会自动刷新。请返回首页查看当前行情、操作计划与通知状态。",
         "数据状态：" + "；".join(report.get("warnings", [])),
         "## 先看操作计划",
         action_guide_markdown(report.get("decision")),
     ]
+    focus = list(report.get("ai", {}).get("next_day_focus") or [])
+    if not focus:
+        focus = [
+            item.get("title", "观察")
+            for item in (report.get("decision") or {}).get("scenarios", [])[:3]
+        ]
+    if not focus:
+        focus = ["核对行情日期、企稳信号和公告原文；数据不足的项目暂不判断。"]
     values = {
         **report,
         "pnl": {
             k: report["portfolio"].get(k) for k in ("market_value", "pnl", "pnl_pct")
         },
-        "focus": report.get("ai", {}).get(
-            "next_day_focus",
-            ["核对行情日期、企稳信号和公告原文；数据不足的项目暂不判断。"],
-        ),
+        "focus": focus,
     }
     for title, key in SECTIONS:
         value = values.get(key)

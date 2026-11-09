@@ -15,8 +15,9 @@ def test_bark_mock(monkeypatch):
             return None
 
     monkeypatch.setattr("app.notifications.bark.httpx.post", lambda *a, **k: calls.append((a, k)) or Response())
-    assert send_bark("标题", "内容", "WARNING")
+    assert send_bark("标题", "内容", "WARNING", "http://phone:8000/report")
     assert calls[0][1]["timeout"] == 10
+    assert calls[0][1]["json"]["url"] == "http://phone:8000/report"
 
 
 def test_bark_failure_does_not_raise(monkeypatch):
@@ -121,6 +122,42 @@ def test_daily_email_is_sent_once_and_failure_can_retry(tmp_path, monkeypatch):
     assert len(sent) == 2
 
 
+def test_daily_bark_is_detailed_and_sent_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORT_PUBLIC_URL", "http://phone:8000")
+    service = NotificationService(tmp_path)
+    barks = []
+    monkeypatch.setattr(service, "bark", lambda *args: barks.append(args) or True)
+    monkeypatch.setattr(service, "email", lambda *args: True)
+    report = {
+        "date": "2026-10-20",
+        "market": {"date": "2026-10-20", "close": 34.89, "pct_change": 3.47},
+        "portfolio": {"shares": 1100, "pnl": -7132.4, "pnl_pct": -15.67},
+        "risk": {"score": 61},
+        "stabilization": {"score": 5},
+        "watch_zone": {"state": "事件风险"},
+        "levels": {
+            "support": [{"price": 32.48}],
+            "resistance": [{"price": 36.44}],
+        },
+        "ai": {"summary": "测试 AI 摘要"},
+        "position_zones": [],
+        "confirmation_score": 7,
+    }
+    first = service.daily(report)
+    assert first["bark"] is True
+    assert len(barks) == 1
+    body = barks[0][1]
+    assert "收盘 34.89" in body
+    assert "持仓 1100" in body
+    assert "风险 61/100" in body
+    assert "支撑 32.48" in body
+    assert "测试 AI 摘要" in body
+    assert "http://phone:8000/reports/603283/2026-10-20.html" in body
+    second = service.daily(report)
+    assert second["bark"] == "already_sent"
+    assert len(barks) == 1
+
+
 def test_actionable_signals_cover_buy_sell_and_risk():
     buy = {
         "watch_zone": {"state": "第一加仓观察区", "confirmed": True},
@@ -193,6 +230,59 @@ def test_action_alert_sends_immediately_and_deduplicates(tmp_path, monkeypatch):
     assert "参考股数：200 股" in sent[0][1]
     assert "触发后参考持仓：300 股" in sent[0][1]
     assert "不构成投资建议" in sent[0][1]
+
+
+def test_intraday_snapshot_is_sent_once_per_session(tmp_path, monkeypatch):
+    service = NotificationService(tmp_path)
+    barks = []
+    monkeypatch.setattr(service, "bark", lambda *args: barks.append(args) or True)
+    report = {
+        "technical_as_of": "2026-10-20",
+        "technical": {"MA5": 34.29, "MA20": 40.96, "RSI14": 29.3},
+        "trend": {"short": {"state": "BEAR"}, "medium": {"state": "STRONG_BEAR"}},
+        "risk": {"score": 61},
+        "stabilization": {"score": 5},
+        "watch_zone": {"state": "事件风险"},
+        "levels": {"support": [{"price": 32.48, "strength": 0.8}], "resistance": [{"price": 36.44}]},
+        "decision": {"title": "事件风险：暂停加仓"},
+    }
+    quote = {
+        "date": "2026-10-21",
+        "close": 35.2,
+        "pct_change": 0.9,
+        "quote_time": "2026-10-21T09:35:02+08:00",
+    }
+    assert service.intraday(report, quote, "上午开盘") is True
+    assert len(barks) == 1
+    title, body, level = barks[0][0], barks[0][1], barks[0][2]
+    assert "上午开盘" in title
+    assert "现价 35.20" in body
+    assert "短期 偏弱 / 中期 强烈偏弱" in body
+    assert "支撑 32.48" in body
+    assert service.intraday(report, quote, "上午开盘") == "already_sent"
+    assert len(barks) == 1
+
+
+def test_analysis_runner_skips_notifications_for_stale_report():
+    from app.analysis.runner import AnalysisRunner
+
+    calls = []
+
+    class Analyzer:
+        def analyze(self, code, progress=None):
+            return {"date": "2026-10-20", "stale_data": True}
+
+    class Notifier:
+        def action_alert(self, report):
+            calls.append("action")
+
+        def daily(self, report):
+            calls.append("daily")
+
+    runner = AnalysisRunner(Analyzer(), Notifier())
+    assert runner.reserve()
+    runner.run_reserved()
+    assert calls == []
 
 
 def test_analysis_runner_sends_action_alert_before_daily_notification():

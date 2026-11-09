@@ -3,13 +3,14 @@ from __future__ import annotations
 import logging
 import os
 import time
-from urllib.parse import quote
 import httpx
 
 LOGGER = logging.getLogger("notification")
 
 
-def send_bark(title: str, message: str, level: str = "INFO") -> bool:
+def send_bark(
+    title: str, message: str, level: str = "INFO", url: str | None = None
+) -> bool:
     if os.getenv("BARK_ENABLED", "false").lower() != "true":
         return False
     key = os.getenv("BARK_DEVICE_KEY", "")
@@ -18,12 +19,25 @@ def send_bark(title: str, message: str, level: str = "INFO") -> bool:
         return False
     base = os.getenv("BARK_BASE_URL", "https://api.day.app").rstrip("/")
     sounds = {"INFO": "calypso", "WATCH": "minuet", "WARNING": "alarm", "CRITICAL": "sosumi"}
-    payload = {"level": "timeSensitive" if level in ("WARNING", "CRITICAL") else "active", "sound": sounds.get(level, "calypso"), "group": "Stock Agent"}
+    payload = {
+        "device_key": key,
+        "title": title,
+        "body": message,
+        "level": "timeSensitive" if level in ("WARNING", "CRITICAL") else "active",
+        "sound": sounds.get(level, "calypso"),
+        "group": "Stock Agent",
+    }
+    if url:
+        payload["url"] = url
+    # POST /push keeps the device key out of the URL and therefore out of
+    # httpx access logs. The legacy GET /{key}/{title}/{body} form is avoided.
     for attempt, delay in enumerate((0, 3, 10)):
         if delay:
             time.sleep(delay)
         try:
-            response = httpx.post(f"{base}/{quote(key, safe='')}/{quote(title, safe='')}/{quote(message, safe='')}", params=payload, timeout=10)
+            response = httpx.post(
+                f"{base}/push", json=payload, timeout=10
+            )
             response.raise_for_status()
             LOGGER.info("Bark 发送成功 level=%s", level)
             return True

@@ -7,7 +7,7 @@ from app.bootstrap import bootstrap as initialize
 from app.database.db import create_db
 from app.database.repository import Repository
 from app.data.market_provider import MarketService, normalize_code
-from app.data.remote_market import providers
+from app.data.remote_market import adjusted_providers, providers
 
 
 def bootstrap() -> tuple[Settings, Repository]:
@@ -22,20 +22,38 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="个人 A 股每日分析 Agent")
     parser.add_argument(
         "command",
-        choices=["init-db", "download", "analyze", "daily", "web", "server", "migrate", "test-bark", "test-email", "backup"],
+        choices=["init-db", "download", "analyze", "backtest", "daily", "web", "server", "migrate", "test-bark", "test-email", "backup"],
         default="web",
         nargs="?",
     )
     parser.add_argument("code", nargs="?", default="603283.SH")
     parser.add_argument("--offline", action="store_true", help="仅使用缓存且禁用 LLM")
+    parser.add_argument("--start", help="回测开始日期，例如 2025-01-01")
+    parser.add_argument("--end", help="回测结束日期，例如 2026-10-20")
+    parser.add_argument("--max-shares", type=int, default=1100, help="回测最大计划股数")
+    parser.add_argument("--capital", type=float, help="回测初始资金；默认按最大股数与首日收盘价计算")
+    parser.add_argument("--initial-shares", type=int, default=0, help="回测起始持仓股数，默认 0（空仓开始）")
+    parser.add_argument("--cooldown", type=int, default=0, help="风险卖出后的回测冷却交易日数")
+    parser.add_argument("--walk-forward", action="store_true", help="滚动训练窗口校准观察区后再交易")
+    parser.add_argument("--train-days", type=int, default=250, help="walk-forward 训练窗口交易日数")
+    parser.add_argument("--rebalance-days", type=int, default=60, help="walk-forward 重新校准间隔")
+    parser.add_argument("--warmup", type=int, default=260, help="回测指标预热 K 线数")
+    parser.add_argument("--days", type=int, help="download 时请求的自然日数；默认读取 config.yaml")
     args = parser.parse_args()
     settings, repository = bootstrap()
     if args.command in ("web", "server"):
         import uvicorn
         from app.main import create_app
 
-        host = "0.0.0.0" if args.command == "server" else "127.0.0.1"
-        uvicorn.run(create_app(settings, repository), host=host, port=8000, workers=1)
+        import os
+
+        host = (
+            "0.0.0.0"
+            if args.command == "server" or os.getenv("PORT")
+            else os.getenv("WEB_HOST", "127.0.0.1")
+        )
+        port = int(os.getenv("PORT", "8000"))
+        uvicorn.run(create_app(settings, repository), host=host, port=port, workers=1)
         return
     if args.command == "migrate":
         print("数据库迁移完成")
@@ -59,17 +77,48 @@ def main() -> None:
     if args.command == "init-db":
         print("SQLite 已初始化")
         return
+    if args.command == "backtest":
+        from app.backtest.engine import (
+            BacktestConfig,
+            run_backtest,
+            run_walk_forward,
+            save_backtest,
+        )
+
+        config = BacktestConfig(
+            code=normalize_code(args.code),
+            start=args.start,
+            end=args.end,
+            max_shares=args.max_shares,
+            initial_cash=args.capital,
+            initial_shares=args.initial_shares,
+            cooldown_days=args.cooldown,
+            warmup_bars=args.warmup,
+        )
+        if args.walk_forward:
+            result = run_walk_forward(
+                settings,
+                repository,
+                config,
+                train_days=args.train_days,
+                rebalance_days=args.rebalance_days,
+            )
+            tag = "wf"
+        else:
+            result = run_backtest(settings, repository, config)
+            tag = ""
+        md_path, json_path = save_backtest(result, settings.root, tag=tag)
+        print(json.dumps(result["summary"], ensure_ascii=False, indent=2))
+        print(f"回测报告：{md_path}")
+        print(f"回测明细：{json_path}")
+        return
     if args.command == "daily" and not args.offline:
         from app.scheduler.jobs import TradingCalendar, daily_job
         from app.analysis.stock_analyzer import StockAnalyzer
         from app.analysis.runner import AnalysisRunner
-        from app.notifications import NotificationService
 
         success = daily_job(
-            AnalysisRunner(
-                StockAnalyzer(settings, repository),
-                NotificationService(settings.root),
-            ),
+            AnalysisRunner(StockAnalyzer(settings, repository)),
             TradingCalendar(settings.path("data/trading_calendar.json")),
         )
         print(
@@ -84,10 +133,6 @@ def main() -> None:
         report = StockAnalyzer(settings, repository).analyze(
             args.code, refresh=not args.offline, use_llm=not args.offline
         )
-        if not args.offline:
-            from app.notifications import NotificationService
-
-            NotificationService(settings.root).action_alert(report)
         print(
             json.dumps(
                 {
@@ -101,13 +146,17 @@ def main() -> None:
             )
         )
         return
-    frame, warnings = MarketService(providers(), repository).update(
-        normalize_code(args.code)
-    )
+    code = normalize_code(args.code)
+    days = args.days or settings.config["market"]["history_days"]
+    frame, warnings = MarketService(providers(), repository).update(code, days)
+    adjusted, adj_warnings = MarketService(
+        adjusted_providers(), repository
+    ).update_adjusted(code, days)
     result = {
         "bars": len(frame),
+        "adjusted_bars": len(adjusted),
         "latest": None if frame.empty else frame.iloc[-1]["date"],
-        "warnings": warnings,
+        "warnings": warnings + adj_warnings,
         "minimum_met": len(frame) >= 250,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))

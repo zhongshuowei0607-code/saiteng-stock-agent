@@ -42,6 +42,32 @@ def test_announcement_falls_back_to_eastmoney(monkeypatch):
     assert rows[0]["text_status"] == "仅标题（东方财富）"
 
 
+def test_announcement_full_text_marks_control_change(monkeypatch):
+    import pandas as pd
+
+    def fake_fetch(name, *args, **kwargs):
+        return pd.DataFrame(
+            [
+                {
+                    "公告标题": "关于股东部分股份质押及解除质押的公告",
+                    "公告日期": "2026-10-16",
+                    "网址": "https://data.eastmoney.com/notices/detail/603283/AN202610161830610178.html",
+                }
+            ]
+        )
+
+    monkeypatch.setattr("app.data.announcement_provider.fetch", fake_fetch)
+    monkeypatch.setattr(
+        "app.data.announcement_provider.extract_eastmoney_text",
+        lambda url: "孙丰先生、曾慧女士因离婚股权分割，公司控制权可能会发生变更。",
+    )
+    rows = AnnouncementProvider().fetch("603283.SH")
+    assert rows[0]["raw_text"]
+    assert "控制权变更" in rows[0]["categories"]
+    assert rows[0]["risk_flag"]
+    assert "全文" in rows[0]["text_status"]
+
+
 def test_financial_same_period():
     rows = [
         dict(

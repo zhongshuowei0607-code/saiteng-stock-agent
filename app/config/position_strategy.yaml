@@ -1,9 +1,24 @@
 # 左闭右开，避免边界同时命中；仅为用户配置的观察区间。
+# 2026-10-20 按最新收盘 34.89、ATR 2.10、MA20 40.96、MA60 43.56 校准：
+# 32.5≈120日低点/强支撑，36.4/38.0≈局部低点压力，41.0≈MA20。
 zones:
-  - {min: null, max: 40.5, label: 高风险区}
-  - {min: 40.5, max: 42, label: 第二加仓观察区}
-  - {min: 42, max: 43, label: 第一加仓观察区}
-  - {min: 43, max: 46, label: 持仓观察}
-  - {min: 46, max: 48, label: 反弹观察区}
-  - {min: 48, max: null, label: 反弹减仓观察区}
+  - {min: null, max: 32.5, label: 高风险区}
+  - {min: 32.5, max: 34.4, label: 第二加仓观察区}
+  - {min: 34.4, max: 36.4, label: 第一加仓观察区}
+  - {min: 36.4, max: 38, label: 持仓观察}
+  - {min: 38, max: 41, label: 反弹观察区}
+  - {min: 41, max: null, label: 反弹减仓观察区}
 confirmation_score: 7
+action_plan:
+  lot_size: 100
+  first_add_fraction: 0.5
+  second_add_fraction: 1.0
+  breakout_add_fraction: 0.5
+  rebound_sell_fraction: 0.2
+  reduce_sell_fraction: 0.5
+  break_support_sell_fraction: 0.5
+  critical_sell_fraction: 1.0
+  # 2 = 需连续两日收于区间下沿上方；1 = 关闭
+  add_confirmation_days: 1
+  # 例如 [STRONG_BEAR] 可阻止强空趋势加仓；默认关闭
+  block_add_trends: []

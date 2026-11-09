@@ -1,0 +1,17 @@
+.venv/
+.venv.backup-*/
+.env
+.env.localbackup
+__pycache__/
+.pytest_cache/
+logs/
+reports/
+data/*.db*
+data/*.lock
+data/.settings.key
+.git/
+Dockerfile.railway-backup
+DESIGN_V2.md
+PHASES.md
+tests/
+backup/

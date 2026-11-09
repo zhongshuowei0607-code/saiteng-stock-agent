@@ -3,7 +3,7 @@ import json
 import logging
 import re
 import time
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -102,12 +102,26 @@ def explain(provider: LLMProvider | None, facts: dict, *, unavailable_reason: st
     if provider is None:
         return rules_explanation(facts, unavailable_reason or "AI 未启用；可在设置中启用并配置模型。", "configuration_error" if unavailable_reason else "disabled")
     number_pattern = r"(?<![a-zA-Z0-9.])[-+]?\d+(?:\.\d+)?"
-    known = [
-        Decimal(number)
-        for number in re.findall(
-            number_pattern, json.dumps(facts, ensure_ascii=False)
-        )
-    ]
+    # Accept the exact fact and its common rounded/unit forms, so the model can
+    # write "2.29%" or "15.3亿元" when the fact is 2.290076 or 1,530,000,000.
+    known: set[Decimal] = set()
+    for raw in re.findall(number_pattern, json.dumps(facts, ensure_ascii=False)):
+        value = Decimal(raw)
+        for base in (value, abs(value)):
+            known.add(base)
+            for places in range(5):
+                quantum = Decimal(1).scaleb(-places)
+                known.add(base.quantize(quantum, rounding=ROUND_HALF_UP))
+                for scale in (Decimal(10000), Decimal(100000000)):
+                    if base >= scale:
+                        scaled = base / scale
+                        for scale_places in range(5):
+                            known.add(
+                                scaled.quantize(
+                                    Decimal(1).scaleb(-scale_places),
+                                    rounding=ROUND_HALF_UP,
+                                )
+                            )
 
     removed_numbers = []
 
@@ -126,6 +140,10 @@ def explain(provider: LLMProvider | None, facts: dict, *, unavailable_reason: st
             token = match.group(0)
             number = Decimal(token)
             if number in known:
+                # Do not expose raw float artifacts such as -15.6716778653%.
+                if "." in token and len(token.split(".", 1)[1]) > 4:
+                    rounded = number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    return f"{rounded:f}"
                 return token
             removed_numbers.append(token)
             logging.warning("已移除模型输出中的未提供数值")

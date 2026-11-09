@@ -30,7 +30,7 @@ def test_trigger_state_prevents_repeated_notifications(tmp_path):
     _, repository = bootstrap(tmp_path)
     notifier = Notifier()
     engine = TriggerEngine(repository, notifier, 30)
-    report = {"watch_zone": {"state": "第一加仓观察区"}, "risk": {"score": 70}, "market": {"close": 42.5, "date": "2026-09-07", "is_realtime": True, "quote_time": "2026-09-07T10:00:00+08:00"}, "levels": {"support": [], "resistance": []}, "stabilization": {"level": "HIGH", "score": 8}, "portfolio": {"shares": 500, "max_shares": 1000}, "trading_session_open": True, "baseline_current": True, "stale_data": False}
+    report = {"watch_zone": {"state": "高风险区"}, "risk": {"score": 70}, "market": {"close": 42.5, "date": "2026-09-07", "is_realtime": True, "quote_time": "2026-09-07T10:00:00+08:00"}, "levels": {"support": [], "resistance": []}, "stabilization": {"level": "HIGH", "score": 8}, "portfolio": {"shares": 500, "max_shares": 1000}, "trading_session_open": True, "baseline_current": True, "stale_data": False}
     now = datetime(2026, 9, 7, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
     first = engine.evaluate(report, {"warning_threshold": 65, "critical_threshold": 85}, now)
     second = engine.evaluate(report, {"warning_threshold": 65, "critical_threshold": 85}, now)
@@ -54,4 +54,12 @@ def test_single_scheduler_contains_monitor_and_two_close_jobs():
         def poll(self):
             pass
     scheduler = build_scheduler(Runner(), Calendar(), {"hour": 17, "minute": 30, "market_update_hour": 15, "market_update_minute": 10}, Monitor(), object())
-    assert {job.id for job in scheduler.get_jobs()} == {"daily_stock_analysis", "close_market_update", "realtime_monitor"}
+    assert {job.id for job in scheduler.get_jobs()} == {
+        "daily_stock_analysis",
+        "daily_stock_analysis_retry",
+        "close_market_update",
+        "realtime_monitor",
+        "intraday_morning_open",
+        "intraday_morning_close",
+        "intraday_afternoon_open",
+    }

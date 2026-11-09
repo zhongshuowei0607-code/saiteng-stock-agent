@@ -14,7 +14,7 @@ def watch_state(
     event_stop: bool = False,
 ) -> dict:
     if price is None:
-        return {"state": None, "message": "数据不足，无法判断。", "confirmed": False}
+        return {"state": None, "message": "数据不足，无法判断。", "confirmed": False, "event_stop": bool(event_stop)}
     state = next(
         (
             zone["label"]
@@ -28,9 +28,10 @@ def watch_state(
     confirmed = score is not None and score >= strategy["confirmation_score"]
     if event_stop:
         return {
-            "state": "高风险区",
+            "state": "事件风险",
             "message": "重大事件风险触发，暂停补仓观察，核对公告原文。",
             "confirmed": False,
+            "event_stop": True,
         }
     if resistance and resistance.get("breakout_confirmed"):
         state = "突破确认区"
@@ -41,4 +42,4 @@ def watch_state(
             if confirmed
             else "企稳信号不足，继续观察。"
         )
-    return {"state": state, "message": message, "confirmed": confirmed}
+    return {"state": state, "message": message, "confirmed": confirmed, "event_stop": False}

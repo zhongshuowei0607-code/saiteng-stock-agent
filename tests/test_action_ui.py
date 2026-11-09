@@ -48,7 +48,7 @@ def dashboard(report):
         loader=FileSystemLoader(ROOT / "app/web/templates"),
         autoescape=select_autoescape(["html"]),
     )
-    return environment.get_template("dashboard_synology.html").render(
+    return environment.get_template("dashboard.html").render(
         r=report, p=report_fixture()["portfolio"], reports=[], triggers=[], version="test"
     )
 
@@ -75,6 +75,72 @@ def test_dashboard_shows_when_amount_checks_and_honest_ai_status():
                     "模型请求超时", "展开规则解读", "需人工确认后操作"):
         assert content in page
     assert "AI 已生成" not in page
+
+
+def test_dashboard_renders_walkforward_shadow_panel():
+    environment = Environment(
+        loader=FileSystemLoader(ROOT / "app/web/templates"),
+        autoescape=select_autoescape(["html"]),
+    )
+    shadow = {
+        "calibrated_on": "2026-10-20",
+        "train_days": 250,
+        "rebalance_days": 60,
+        "zones": [
+            {"label": "高风险区", "min": None, "max": 32.5},
+            {"label": "第一加仓观察区", "min": 34.4, "max": 36.4},
+            {"label": "反弹减仓观察区", "min": 41, "max": None},
+        ],
+        "current_zone": "第一加仓观察区",
+        "portfolio": {"shares": 1100, "cash": 0},
+        "performance": {"equity": 38379, "start_date": "2026-10-20", "return_pct": 0, "benchmark_return_pct": 0},
+        "last_action": None,
+        "note": "研究用途，不自动覆盖上方操作计划和固定观察区。",
+    }
+    page = environment.get_template("dashboard.html").render(
+        r=report_fixture(), p=report_fixture()["portfolio"], reports=[],
+        triggers=[], version="test", shadow=shadow,
+    )
+    assert "滚动校准建议区间" in page
+    assert "不自动应用" in page
+    assert "低于 32.50 元" in page
+
+
+def test_dashboard_renders_risk_budget_panel():
+    report = report_fixture()
+    report["risk_budget"] = {
+        "account_equity": 100000,
+        "account_equity_source": "configured",
+        "cash": 50000,
+        "available_shares": 700,
+        "risk_per_trade_pct": 1.0,
+        "risk_amount": 1000,
+        "atr": 2.0,
+        "atr_stop_multiplier": 2.0,
+        "stop_distance": 4.0,
+        "stop_price": 31.31,
+        "risk_budget_shares": 200,
+        "current_risk_amount": 4400,
+        "current_risk_pct": 4.4,
+        "max_add_by_risk": 0,
+        "max_add_by_cash": 1400,
+        "max_add_by_cap": 0,
+        "max_add_shares": 0,
+        "status": "over_budget",
+        "missing": [],
+        "note": "研究用途",
+    }
+    environment = Environment(
+        loader=FileSystemLoader(ROOT / "app/web/templates"),
+        autoescape=select_autoescape(["html"]),
+    )
+    page = environment.get_template("dashboard.html").render(
+        r=report, p=report_fixture()["portfolio"], reports=[],
+        triggers=[], version="test", shadow=None,
+    )
+    assert "风险预算与账户" in page
+    assert "超预算" in page
+    assert "当前风险 4400.00 元" in page
 
 
 def test_dashboard_handles_no_report_and_legacy_report():

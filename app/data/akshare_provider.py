@@ -6,7 +6,7 @@ from .market_provider import MarketDataProvider, normalize_code
 
 
 class AKShareProvider(MarketDataProvider):
-    def history(self, code: str, start: str, end: str) -> pd.DataFrame:
+    def history(self, code: str, start: str, end: str, adjust: str = "") -> pd.DataFrame:
         # macOS can expose a system proxy to Requests without shell proxy
         # variables. Eastmoney often closes proxied requests, so bypass the
         # proxy only for its public market-data hosts inside this worker.
@@ -23,7 +23,7 @@ class AKShareProvider(MarketDataProvider):
                 period="daily",
                 start_date=start,
                 end_date=end,
-                adjust="",
+                adjust=adjust,
                 timeout=20,
             )
         except Exception as exc:
@@ -33,7 +33,7 @@ class AKShareProvider(MarketDataProvider):
                 symbol=f"{prefix}{normalized[:6]}",
                 start_date=start,
                 end_date=end,
-                adjust="",
+                adjust=adjust,
             )
             if not frame.empty:
                 # 新浪成交量单位为股、换手率为小数；统一为手和百分比。
@@ -42,7 +42,7 @@ class AKShareProvider(MarketDataProvider):
                 frame["pre_close"] = frame["close"].shift(1)
                 frame["change"] = frame["close"].diff()
                 frame["pct_change"] = frame["close"].pct_change() * 100
-                frame["source"] = "AKShare / 新浪财经（不复权）"
+                frame["source"] = "AKShare / 新浪财经（前复权）" if adjust else "AKShare / 新浪财经（不复权）"
             return frame
         frame = frame.rename(
             columns={
@@ -60,5 +60,5 @@ class AKShareProvider(MarketDataProvider):
         )
         if not frame.empty:
             frame["pre_close"] = frame["close"] - frame["change"]
-            frame["source"] = "AKShare / 东方财富（不复权）"
+            frame["source"] = "AKShare / 东方财富（前复权）" if adjust else "AKShare / 东方财富（不复权）"
         return frame

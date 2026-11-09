@@ -83,12 +83,12 @@ def test_trade_price_precision_and_share_integer():
 @pytest.mark.parametrize(
     "price,state",
     [
-        (40.49, "高风险区"),
-        (40.5, "第二加仓观察区"),
-        (42, "第一加仓观察区"),
-        (43, "持仓观察"),
-        (46, "反弹观察区"),
-        (48, "反弹减仓观察区"),
+        (32.49, "高风险区"),
+        (32.5, "第二加仓观察区"),
+        (34.4, "第一加仓观察区"),
+        (36.4, "持仓观察"),
+        (38, "反弹观察区"),
+        (41, "反弹减仓观察区"),
     ],
 )
 def test_state_boundaries(price, state):

@@ -19,7 +19,9 @@ from app.database.repository import Repository
 from app.analysis.stock_analyzer import StockAnalyzer
 from app.analysis.runner import AnalysisRunner
 from app.analysis.action_context import current_action_report
+from app.analysis.walkforward_shadow import load_shadow, summarize_shadow
 from app.portfolio.portfolio_service import load_position
+from app.portfolio.position import DEFAULT_MAX_SHARES
 from app.api.routes import router
 from app.config.secure_store import create_secure_settings
 from app.security import authenticate
@@ -121,9 +123,23 @@ def create_app(
         portfolio = (
             json.loads(portfolio_file.read_text(encoding="utf-8"))
             if portfolio_file.exists()
-            else {"max_shares": 1000, "buys": [], "sells": []}
+            else {
+                "max_shares": DEFAULT_MAX_SHARES,
+                "account_equity": None,
+                "cash": None,
+                "available_shares": None,
+                "risk_per_trade_pct": 1.0,
+                "atr_stop_multiplier": 2.0,
+                "buys": [],
+                "sells": [],
+            }
         )
-        portfolio.setdefault("max_shares", 1000)
+        portfolio.setdefault("max_shares", DEFAULT_MAX_SHARES)
+        portfolio.setdefault("account_equity", None)
+        portfolio.setdefault("cash", None)
+        portfolio.setdefault("available_shares", None)
+        portfolio.setdefault("risk_per_trade_pct", 1.0)
+        portfolio.setdefault("atr_stop_multiplier", 2.0)
         portfolio.setdefault("buys", [])
         portfolio.setdefault("sells", [])
         values = {
@@ -153,7 +169,7 @@ def create_app(
         store = app.state.secure_settings
         return templates.TemplateResponse(
             request=request,
-            name="setup_synology.html",
+            name="setup.html",
             context=setup_context(store, store.is_complete()),
         )
 
@@ -161,7 +177,7 @@ def create_app(
     def settings_page(request: Request) -> Response:
         return templates.TemplateResponse(
             request=request,
-            name="setup_synology.html",
+            name="setup.html",
             context=setup_context(app.state.secure_settings, True),
         )
 
@@ -181,8 +197,8 @@ def create_app(
         ).valuation(price)
         return templates.TemplateResponse(
             request=request,
-            name="dashboard_synology.html",
-            context={"r": report, "p": portfolio, "reports": rows[:30], "version": version, "triggers": [item for item in repository.trigger_events(50) if item["created_at"].startswith(today)][:20]},
+            name="dashboard.html",
+            context={"r": report, "p": portfolio, "shadow": summarize_shadow(load_shadow(settings.root)), "reports": rows[:30], "version": version, "triggers": [item for item in repository.trigger_events(50) if item["created_at"].startswith(today)][:20]},
         )
 
     return app

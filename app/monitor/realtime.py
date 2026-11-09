@@ -83,6 +83,8 @@ class RealtimeMonitor:
             report["action_plan"] = self.settings.strategy.get("action_plan", {})
             report["position_zones"] = self.settings.strategy["zones"]
             report["portfolio"] = load_position(self.settings.path("data/portfolio.json")).valuation(quote["close"])
+            # An intraday quote cannot confirm a daily close/volume breakout.
+            report["breakout_confirmed"] = False
             report["watch_zone"] = watch_state(quote["close"], report.get("stabilization", {}), self.settings.strategy,
                 event_stop=any(e.get("stop_adding_observation") is True for e in report.get("ai", {}).get("events", [])))
             report["risk"] = risk_score(report)

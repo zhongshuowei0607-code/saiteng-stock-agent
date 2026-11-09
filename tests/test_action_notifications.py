@@ -103,11 +103,12 @@ def test_risk_suppresses_buy_and_critical_escalation_sends_again(tmp_path, monke
     report = live_report()
     report["watch_zone"]["state"] = "第一加仓观察区"
     report["risk"]["score"] = 70
-    assert service.action_alert(report, now=NOW)["email"] == {"risk": True}
-    assert "买入条件核对" not in sent[0][1]
+    assert service.action_alert(report, now=NOW)["email"] == "no_signal"
+    assert not sent
     report["risk"]["score"] = 86
     assert service.action_alert(report, now=NOW)["email"] == {"risk": True}
-    assert len(sent) == 2
+    assert "买入条件核对" not in sent[0][1]
+    assert len(sent) == 1
 
 
 def test_daily_deduplicates_market_date_even_when_report_regenerated(tmp_path, monkeypatch):

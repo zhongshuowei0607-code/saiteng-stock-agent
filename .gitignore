@@ -11,5 +11,6 @@ data/.settings.key
 data/trading_calendar.json
 data/system_status.json
 data/notification_state.json
+data/walkforward_shadow.json
 
 .venv.backup-*/

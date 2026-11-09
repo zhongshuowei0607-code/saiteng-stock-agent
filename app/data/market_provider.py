@@ -72,7 +72,7 @@ def validate(frame: pd.DataFrame) -> pd.DataFrame:
 
 class MarketDataProvider(ABC):
     @abstractmethod
-    def history(self, code: str, start: str, end: str) -> pd.DataFrame: ...
+    def history(self, code: str, start: str, end: str, adjust: str = "") -> pd.DataFrame: ...
 
 
 class MarketService:
@@ -94,4 +94,30 @@ class MarketService:
                 errors.append(message)
         cached = self.repository.history(code)
         errors.append("全部行情源失败；使用缓存（如有），请核对行情日期。")
+        return cached, errors
+
+    def update_adjusted(self, code: str, days: int = 800) -> tuple[pd.DataFrame, list[str]]:
+        """Fetch a forward-adjusted series for indicators only.
+
+        Raw prices remain the source of truth for current price, portfolio
+        valuation and position zones. Adjusted prices are stored separately so
+        a dividend/split cannot create a fake technical break.
+        """
+        errors = []
+        for provider in self.providers:
+            try:
+                frame = validate(
+                    provider.history(code, *date_range(days), adjust="qfq")
+                )
+                self.repository.save_adjusted_bars(code, frame)
+                return frame, errors
+            except Exception as exc:
+                message = (
+                    f"{getattr(provider, 'source', type(provider).__name__)}"
+                    f" 前复权获取失败：{type(exc).__name__}"
+                )
+                logging.warning(message)
+                errors.append(message)
+        cached = self.repository.adjusted_history(code)
+        errors.append("前复权行情全部失败；技术指标回退为不复权缓存（如有）。")
         return cached, errors

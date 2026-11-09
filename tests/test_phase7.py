@@ -144,7 +144,7 @@ def test_breakout_and_event_override():
         == "突破确认区"
     )
     result = watch_state(42.5, {"score": 10}, strategy, event_stop=True)
-    assert result["state"] == "高风险区" and not result["confirmed"]
+    assert result["state"] == "事件风险" and not result["confirmed"]
 
 
 def test_config_gap(tmp_path):
@@ -154,7 +154,7 @@ def test_config_gap(tmp_path):
     shutil.copytree(settings.path("app/config"), tmp_path / "app/config")
     path = tmp_path / "app/config/position_strategy.yaml"
     data = yaml.safe_load(path.read_text())
-    data["zones"][1]["min"] = 40.6
+    data["zones"][1]["min"] = 32.6
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError, match="重叠或缺口"):
         load_settings(tmp_path)

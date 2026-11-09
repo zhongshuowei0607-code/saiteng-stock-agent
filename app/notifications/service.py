@@ -10,6 +10,7 @@ from threading import Lock
 from zoneinfo import ZoneInfo
 
 from app.analysis.action_plan import build_action_guide
+from app.portfolio.portfolio_service import load_position
 from .bark import send_bark
 from .email import send_email
 
@@ -48,8 +49,10 @@ class NotificationService:
             name = temporary.name
         os.replace(name, self.state_path)
 
-    def bark(self, title: str, message: str, level: str = "INFO") -> bool:
-        return send_bark(title, message, level)
+    def bark(
+        self, title: str, message: str, level: str = "INFO", url: str | None = None
+    ) -> bool:
+        return send_bark(title, message, level, url=url)
 
     def email(self, subject: str, body: str, report: Path | None = None) -> bool:
         return send_email(subject, body, report)
@@ -172,6 +175,23 @@ class NotificationService:
         title = f"赛腾股份日报 · {market_date} · 风险 {risk if risk is not None else '—'}"
         date = report["date"]
         guide = build_action_guide(report)
+        public_url = os.getenv("REPORT_PUBLIC_URL", "").rstrip("/")
+        report_url = (
+            f"{public_url}/reports/603283/{date}.html" if public_url else None
+        )
+        bark_body = self._daily_bark_body(report, guide, summary, report_url)
+        with self.state_lock:
+            state = self._state()
+            bark_already = state.get("last_daily_bark_date") == market_date
+        if bark_already:
+            bark: bool | str = "already_sent"
+        else:
+            bark = self.bark(
+                title,
+                bark_body,
+                "WARNING" if risk and risk >= 65 else "INFO",
+                report_url,
+            )
         body = "\n".join([
             f"行情日期：{market_date}；报告生成日：{date}",
             "", f"分析摘要：{summary}",
@@ -183,10 +203,12 @@ class NotificationService:
             "", "条件计划供人工复核；收盘日报不代表当前存在盘中交易信号。",
         ])
         html = self.root / f"reports/603283/{date}.html"
-        bark = self.bark(title, summary, "WARNING" if risk and risk >= 65 else "INFO")
         with self.state_lock:
             state = self._state()
             now = datetime.now(SHANGHAI).isoformat()
+            if bark is True:
+                state["last_daily_bark_date"] = market_date
+                state["last_daily_bark_sent_at"] = now
             if state.get("last_daily_email_date") == market_date:
                 email: bool | str = "already_sent"
             else:
@@ -197,8 +219,128 @@ class NotificationService:
             self._record(state, {
                 "kind": "daily", "checked_at": now, "report_date": date, "market_date": market_date,
                 "sent_at": state.get("last_daily_email_sent_at") if email else None,
+                "bark": bark if bark != "already_sent" else "already_sent",
                 "status": "already_sent" if email == "already_sent" else "sent" if email else "failed",
                 "reason": "今天的日报已发送" if email == "already_sent" else "已交付邮件服务器" if email else "日报发送失败，下次更新可重试",
             }, attempted=email != "already_sent")
             self._save_state(state)
         return {"bark": bark, "email": email}
+
+    def intraday(
+        self, report: dict, quote: dict, session: str, now: datetime | None = None
+    ) -> bool | str:
+        """Send a short intraday price/trend snapshot once per session."""
+        now = now or datetime.now(SHANGHAI)
+        market_date = str(quote.get("date") or "")
+        price = quote.get("close")
+        if not market_date or not isinstance(price, (int, float)) or price <= 0:
+            LOGGER.warning("盘中快照缺少有效报价")
+            return False
+        key = f"{market_date}:{session}"
+        with self.state_lock:
+            state = self._state()
+            if key in (state.get("intraday_snapshots") or {}):
+                return "already_sent"
+        title = f"赛腾股份 {session}快照 · {market_date}"
+        body = self._intraday_body(report, quote, session)
+        ok = self.bark(title, body, "WATCH")
+        if ok:
+            with self.state_lock:
+                state = self._state()
+                state.setdefault("intraday_snapshots", {})[key] = now.isoformat()
+                # Keep the state file bounded; older sessions are no longer useful.
+                snapshots = state["intraday_snapshots"]
+                if len(snapshots) > 60:
+                    for old_key in sorted(snapshots)[: len(snapshots) - 60]:
+                        snapshots.pop(old_key, None)
+                self._save_state(state)
+        return ok
+
+    def _intraday_body(self, report: dict, quote: dict, session: str) -> str:
+        price = float(quote["close"])
+        pct = quote.get("pct_change")
+        technical = report.get("technical") or {}
+        trend = report.get("trend") or {}
+        labels = {
+            "STRONG_BEAR": "强烈偏弱", "BEAR": "偏弱", "SIDEWAYS": "震荡",
+            "BULL": "偏强", "STRONG_BULL": "强烈偏强",
+        }
+        short = labels.get((trend.get("short") or {}).get("state"), "—")
+        medium = labels.get((trend.get("medium") or {}).get("state"), "—")
+        risk = (report.get("risk") or {}).get("score")
+        stable = (report.get("stabilization") or {}).get("score")
+        watch = (report.get("watch_zone") or {}).get("state") or "—"
+        levels = report.get("levels") or {}
+        support_item = max(
+            (levels.get("support") or []),
+            key=lambda item: (
+                float(item.get("strength", 0)), -float(item.get("price", 0))
+            ),
+            default=None,
+        ) if levels.get("support") else None
+        support = support_item.get("price") if support_item else None
+        resistance = (levels.get("resistance") or [{}])[0].get("price")
+        try:
+            portfolio = load_position(self.root / "data/portfolio.json").valuation(price)
+        except Exception:
+            portfolio = {}
+        decision = report.get("decision") or {}
+        lines = [
+            f"现价 {price:.2f} 元" + (f"（{pct:+.2f}%）" if isinstance(pct, (int, float)) else ""),
+            f"日线趋势：短期 {short} / 中期 {medium}（基准 {report.get('technical_as_of') or '—'}）",
+            " ".join(
+                part for part in (
+                    f"MA5 {technical.get('MA5'):.2f}" if isinstance(technical.get("MA5"), (int, float)) else "",
+                    f"MA20 {technical.get('MA20'):.2f}" if isinstance(technical.get("MA20"), (int, float)) else "",
+                    f"RSI14 {technical.get('RSI14'):.1f}" if isinstance(technical.get("RSI14"), (int, float)) else "",
+                ) if part
+            ) or "均线/RSI 数据不足",
+            f"风险 {risk if risk is not None else '—'}/100 · 企稳 {stable if stable is not None else '—'}/10 · {watch}",
+            (f"持仓 {portfolio.get('shares')} 股 · 浮盈亏 {portfolio.get('pnl'):+,.2f} 元（{portfolio.get('pnl_pct'):+.2f}%）"
+             if isinstance(portfolio.get("pnl"), (int, float)) and isinstance(portfolio.get("pnl_pct"), (int, float))
+             else "持仓数据不足"),
+            f"支撑 {support:g} / 压力 {resistance:g}" if isinstance(support, (int, float)) and isinstance(resistance, (int, float)) else "支撑/压力：数据不足",
+            f"收盘计划：{decision.get('title', '以主报告为准')}",
+            f"报价时间 {quote.get('quote_time') or '—'}；仅作盘中信息，不构成交易指令。",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _daily_bark_body(
+        report: dict, guide: dict, summary: str, report_url: str | None = None
+    ) -> str:
+        market = report.get("market", {})
+        portfolio = report.get("portfolio", {})
+        price = market.get("close")
+        pct = market.get("pct_change")
+        shares = portfolio.get("shares")
+        pnl = portfolio.get("pnl")
+        pnl_pct = portfolio.get("pnl_pct")
+        risk = report.get("risk", {}).get("score")
+        stable = report.get("stabilization", {}).get("score")
+        watch = report.get("watch_zone", {}).get("state") or "—"
+        supports = report.get("levels", {}).get("support", [])
+        resistances = report.get("levels", {}).get("resistance", [])
+        support_item = max(
+            supports,
+            key=lambda item: (
+                float(item.get("strength", 0)),
+                -float(item.get("price", 0)),
+            ),
+            default=None,
+        ) if supports else None
+        support = support_item.get("price") if support_item else None
+        resistance = resistances[0].get("price") if resistances else None
+        lines = [
+            f"收盘 {price if price is not None else '—'} 元"
+            + (f"（{pct:+.2f}%）" if isinstance(pct, (int, float)) else ""),
+            f"持仓 {shares if shares is not None else '—'} 股"
+            + (f" · 浮盈亏 {pnl:+,.2f} 元（{pnl_pct:+.2f}%）" if isinstance(pnl, (int, float)) and isinstance(pnl_pct, (int, float)) else ""),
+            f"风险 {risk if risk is not None else '—'}/100 · 企稳 {stable if stable is not None else '—'}/10 · {watch}",
+            f"支撑 {support:g} / 压力 {resistance:g}" if support and resistance else "支撑/压力：数据不足",
+            f"结论：{guide.get('title', '保持观察')}",
+            guide.get("summary", ""),
+            f"摘要：{summary[:180]}",
+            f"完整日报：{report_url}" if report_url else "完整日报请在电脑 Dashboard 查看；条件计划需人工确认。",
+        ]
+        return "\n".join(line for line in lines if line)

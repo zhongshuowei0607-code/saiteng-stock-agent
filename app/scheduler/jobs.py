@@ -101,6 +101,46 @@ def daily_job(
     return runner.last_error is None
 
 
+def daily_retry_job(
+    runner: AnalysisRunner, calendar: TradingCalendar, day: date | None = None
+) -> bool:
+    """Retry the close report once if the 15:05 run saw a stale daily bar."""
+    day = day or datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    if calendar.is_open(day) is not True:
+        return False
+    latest = runner.analyzer.repository.reports(limit=1)
+    if latest and latest[0].get("market", {}).get("date") == day.isoformat():
+        logging.info("15:05 日报已使用当日行情，跳过重试")
+        return False
+    return daily_job(runner, calendar, day)
+
+
+def intraday_snapshot_job(
+    runner: AnalysisRunner,
+    calendar: TradingCalendar,
+    session: str,
+    day: date | None = None,
+) -> bool:
+    """Send a lightweight price/trend snapshot at the three intraday checkpoints."""
+    day = day or datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    if calendar.is_open(day) is not True:
+        return False
+    try:
+        from app.data.realtime_quote import fetch_realtime_quote
+
+        quote = fetch_realtime_quote("603283.SH")
+    except Exception as exc:
+        logging.warning("盘中快照行情获取失败：%s", type(exc).__name__)
+        return False
+    if quote.get("date") != day.isoformat():
+        logging.warning("盘中快照报价日期不是今天，跳过")
+        return False
+    reports = runner.analyzer.repository.reports(limit=1)
+    report = reports[0] if reports else {}
+    result = runner.notifier.intraday(report, quote, session) if runner.notifier else False
+    return result is True
+
+
 def market_update_job(repository, calendar: TradingCalendar, day: date | None = None) -> bool:
     day = day or datetime.now(ZoneInfo("Asia/Shanghai")).date()
     if calendar.is_open(day) is not True:
@@ -134,6 +174,45 @@ def build_scheduler(
         max_instances=1,
         misfire_grace_time=3600,
     )
+    scheduler.add_job(
+        daily_retry_job,
+        trigger=CronTrigger(
+            hour=config.get("retry_hour", 15),
+            minute=config.get("retry_minute", 20),
+            timezone="Asia/Shanghai",
+        ),
+        args=[runner, calendar],
+        id="daily_stock_analysis_retry",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+    intraday = config.get("intraday") or {}
+    if intraday.get("enabled", True):
+        for key, session, default in (
+            ("morning_open", "上午开盘", "09:35"),
+            ("morning_close", "上午收盘", "11:35"),
+            ("afternoon_open", "下午开盘", "13:05"),
+        ):
+            value = str(intraday.get(key, default))
+            try:
+                hour, minute = (int(part) for part in value.split(":", 1))
+            except (TypeError, ValueError):
+                logging.warning("盘中快照时间配置无效：%s=%s", key, value)
+                continue
+            scheduler.add_job(
+                intraday_snapshot_job,
+                trigger=CronTrigger(
+                    hour=hour, minute=minute, timezone="Asia/Shanghai"
+                ),
+                args=[runner, calendar, session],
+                id=f"intraday_{key}",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=1800,
+            )
     if repository is not None:
         scheduler.add_job(market_update_job, trigger=CronTrigger(hour=config.get("market_update_hour", 15), minute=config.get("market_update_minute", 10), timezone="Asia/Shanghai"), args=[repository, calendar], id="close_market_update", replace_existing=True, coalesce=True, max_instances=1)
     if monitor is not None and monitor.settings.config["monitor"].get("enabled", True):

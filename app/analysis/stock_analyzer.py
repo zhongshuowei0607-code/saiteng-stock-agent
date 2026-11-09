@@ -11,6 +11,8 @@ from app.indicators.support_resistance import levels
 from app.indicators.trend import trends
 from app.indicators.stabilization import stabilization
 from app.portfolio.portfolio_service import load_position, watch_state
+from app.portfolio.risk_budget import build_risk_budget
+from app.analysis.factor_model import build_factor_snapshot
 from app.llm.factory import make_provider
 from app.llm.base import explain
 from .risk_analyzer import risk_score
@@ -18,7 +20,7 @@ from .daily_report import render_reports
 from .locking import analysis_lock
 from .comparison import compare
 from .action_plan import build_action_guide
-from app.data.remote_market import providers
+from app.data.remote_market import adjusted_providers, providers
 
 
 class StockAnalyzer:
@@ -56,22 +58,42 @@ class StockAnalyzer:
             raise ValueError("第一阶段仅支持配置的赛腾股份")
         date = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
         warnings = []
+        adjusted = self.repository.adjusted_history(code)
         if refresh:
             update("market", "更新行情数据")
             frame, warnings = MarketService(providers(), self.repository).update(
                 code, self.settings.config["market"]["history_days"]
             )
+            update("market", "更新前复权指标数据")
+            adjusted, adj_warnings = MarketService(
+                adjusted_providers(), self.repository
+            ).update_adjusted(code, self.settings.config["market"]["history_days"])
+            warnings.extend(adj_warnings)
         else:
             frame = self.repository.history(code)
             warnings.append("本次使用本地缓存，未刷新数据。")
         if len(frame) < self.settings.config["market"]["minimum_bars"]:
             warnings.append(f"仅有{len(frame)}根K线，部分指标数据不足。")
-        technical = calculate(frame)
+        technical_basis = "qfq" if not adjusted.empty else "raw"
+        technical_frame = adjusted if technical_basis == "qfq" else frame
+        technical = calculate(technical_frame)
+        if len(technical_frame) < self.settings.config["market"]["minimum_bars"]:
+            warnings.append(f"指标数据仅有{len(technical_frame)}根K线，部分指标不足。")
         update("indicators", "计算技术指标和风险评分")
         market = {} if frame.empty else clean(frame.iloc[-1].to_dict())
+        if (
+            technical_basis == "qfq"
+            and market
+            and not technical.empty
+            and str(technical.iloc[-1].get("date")) != market.get("date")
+        ):
+            warnings.append("前复权指标日期与最新行情日期不一致，请核对数据源。")
         if market and market["date"] != date:
             warnings.append("报告生成日与行情日期不同，请按最近实际交易日解读。")
-        warnings.append("价格为不复权口径；除权除息可能影响技术信号。")
+        if technical_basis == "qfq":
+            warnings.append("技术指标使用前复权价格；当前价、持仓和成交额使用不复权数据。")
+        else:
+            warnings.append("前复权数据不可用；技术指标回退为不复权价格，除权除息可能影响信号。")
         position = load_position(self.settings.path("data/portfolio.json"))
         portfolio = position.valuation(market.get("close"))
         stable = stabilization(technical)
@@ -80,14 +102,24 @@ class StockAnalyzer:
             "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(),
             "stock": stock,
             "market": market,
+            "technical_basis": technical_basis,
             "technical": {} if technical.empty else clean(technical.iloc[-1].to_dict()),
+            "recent_closes": [] if technical.empty else [
+                float(value) for value in technical["close"].tail(5)
+            ],
             "trend": trends(technical),
             "portfolio": portfolio,
+            "risk_budget": build_risk_budget(
+                portfolio,
+                {} if technical.empty else technical.iloc[-1].to_dict(),
+            ),
+            "strategy_version": "v1",
             "levels": levels(technical),
             "stabilization": stable,
             "news": [],
             "announcements": [],
             "industry": {},
+            "references": self.settings.config.get("references", []),
             "moneyflow": {},
             "fundamental": {},
             "source_status": {},
@@ -135,6 +167,7 @@ class StockAnalyzer:
                         key, [] if key in ("news", "announcements") else {}
                     )
                 warnings.append("新闻/财务/同行使用前次日报缓存，未刷新。")
+        report["factor_snapshot"] = build_factor_snapshot(technical, report)
         # 突破要求连续两日收于此前20日高点上方，且当日放量。
         breakout = False
         if len(technical) >= 23:
@@ -143,6 +176,7 @@ class StockAnalyzer:
                 (technical.close.iloc[-2:] > boundary).all()
                 and technical.iloc[-1].volume_ratio >= 1.2
             )
+        report["breakout_confirmed"] = breakout
         report["watch_zone"] = watch_state(
             market.get("close"),
             stable,
@@ -169,6 +203,11 @@ class StockAnalyzer:
                 "stock",
                 "market",
                 "technical",
+                "technical_basis",
+                "risk_budget",
+                "factor_snapshot",
+                "strategy_version",
+                "references",
                 "trend",
                 "portfolio",
                 "levels",
@@ -187,8 +226,8 @@ class StockAnalyzer:
             prompt_facts[kind] = [
                 {
                     **row,
-                    "raw_text": row.get("raw_text", "")[:2000],
-                    "prompt_text_truncated": len(row.get("raw_text", "")) > 2000,
+                    "raw_text": row.get("raw_text", "")[:12000],
+                    "prompt_text_truncated": len(row.get("raw_text", "")) > 12000,
                 }
                 for row in report[kind][:4]
             ]
@@ -214,6 +253,15 @@ class StockAnalyzer:
         report["comparison"] = compare(previous, report)
         report["technical_as_of"] = market.get("date")
         report["decision"] = build_action_guide(report)
+        try:
+            from app.analysis.walkforward_shadow import update_shadow
+
+            report["walkforward_shadow"] = update_shadow(
+                self.settings, report, technical
+            )
+        except Exception as exc:
+            logging.warning("滚动校准纸面跟踪失败：%s", type(exc).__name__)
+            report["walkforward_shadow"] = {}
         update("report", "生成日报并写入数据库")
         render_reports(report, self.settings.path("reports"))
         self.repository.save_report(code, date, report)

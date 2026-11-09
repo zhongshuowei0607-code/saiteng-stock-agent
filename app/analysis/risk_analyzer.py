@@ -62,7 +62,7 @@ def risk_score(facts: dict) -> dict:
         8,
         "PE启发式阈值，非行业公允估值",
     )
-    pnl = facts["portfolio"].get("pnl_pct")
+    pnl = facts.get("portfolio", {}).get("pnl_pct")
     add(
         "成本距离", max(0, -pnl) * 4 if pnl is not None else None, 8, "相对持仓成本浮亏"
     )

@@ -163,3 +163,6 @@ def test_akshare_falls_back_to_sina_and_normalizes_units(monkeypatch):
 def test_config():
     settings = load_settings()
     assert settings.config["stocks"][0]["code"] == "603283.SH"
+    assert settings.config["peers"]["002475.SZ"] == "立讯精密（立讯科技）"
+    assert settings.config["peers"]["601138.SH"] == "工业富联（富士康）"
+    assert settings.config["references"][0]["name"] == "苹果"

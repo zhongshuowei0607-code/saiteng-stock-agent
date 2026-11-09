@@ -12,8 +12,19 @@ from app.database.db import create_db
 from app.database.migrations import migrate
 from app.database.repository import Repository
 from app.config.secure_store import create_secure_settings
+from app.portfolio.position import DEFAULT_MAX_SHARES
 
-DEFAULT_POSITION = {"code": "603283.SH", "max_shares": 1000, "buys": [{"price": 50, "shares": 200}, {"price": 48, "shares": 200}], "sells": []}
+DEFAULT_POSITION = {
+    "code": "603283.SH",
+    "max_shares": DEFAULT_MAX_SHARES,
+    "account_equity": None,
+    "cash": None,
+    "available_shares": None,
+    "risk_per_trade_pct": 1.0,
+    "atr_stop_multiplier": 2.0,
+    "buys": [{"price": 50, "shares": 200}, {"price": 48, "shares": 200}],
+    "sells": [],
+}
 
 
 def bootstrap(root: Path | None = None) -> tuple[Settings, Repository]:

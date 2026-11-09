@@ -42,7 +42,12 @@ class AnalysisRunner:
     def run_reserved(self, code: str = "603283.SH") -> None:
         try:
             report = self.analyzer.analyze(code, progress=self.progress)
-            if self.notifier:
+            if report.get("stale_data"):
+                # A 15:05 run may still see the previous trading day's bar.
+                # Do not send a misleading daily push; the 15:20 retry will
+                # try again after the data source has finalized the close.
+                logging.warning("行情日期不是报告日，跳过操作/日报推送")
+            elif self.notifier:
                 if hasattr(self.notifier, "action_alert"):
                     self.notifier.action_alert(report)
                 if hasattr(self.notifier, "daily"):

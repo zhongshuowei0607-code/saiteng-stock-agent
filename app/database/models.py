@@ -21,6 +21,13 @@ class Document(Base):
     payload: Mapped[dict] = mapped_column(JSON)
 
 
+class AdjustedBar(Base):
+    __tablename__ = "adjusted_bars"
+    code: Mapped[str] = mapped_column(String, primary_key=True)
+    date: Mapped[str] = mapped_column(String, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
 class Report(Base):
     __tablename__ = "reports"
     code: Mapped[str] = mapped_column(String, primary_key=True)

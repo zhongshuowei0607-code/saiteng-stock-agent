@@ -4,7 +4,7 @@ import pandas as pd
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.engine import Engine
-from .models import MarketBar, Report, Document, Fundamental
+from .models import AdjustedBar, MarketBar, Report, Document, Fundamental
 
 
 def clean(value: object) -> object:
@@ -27,6 +27,22 @@ class Repository:
         with Session(self.engine) as session:
             rows = session.scalars(
                 select(MarketBar).where(MarketBar.code == code).order_by(MarketBar.date)
+            ).all()
+            return pd.DataFrame([r.payload for r in rows])
+
+    def save_adjusted_bars(self, code: str, frame: pd.DataFrame) -> None:
+        with Session(self.engine) as session, session.begin():
+            for row in frame.to_dict("records"):
+                session.merge(
+                    AdjustedBar(code=code, date=str(row["date"]), payload=clean(row))
+                )
+
+    def adjusted_history(self, code: str) -> pd.DataFrame:
+        with Session(self.engine) as session:
+            rows = session.scalars(
+                select(AdjustedBar)
+                .where(AdjustedBar.code == code)
+                .order_by(AdjustedBar.date)
             ).all()
             return pd.DataFrame([r.payload for r in rows])
 

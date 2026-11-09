@@ -1,1 +1,16 @@
-{"code":"603283.SH","max_shares":1000,"buys":[{"price":50,"shares":200},{"price":48,"shares":200}]}
+{
+  "code": "603283.SH",
+  "max_shares": 1100,
+  "account_equity": null,
+  "cash": null,
+  "available_shares": null,
+  "risk_per_trade_pct": 1.0,
+  "atr_stop_multiplier": 2.0,
+  "buys": [
+    {
+      "price": 41.374,
+      "shares": 1100
+    }
+  ],
+  "sells": []
+}

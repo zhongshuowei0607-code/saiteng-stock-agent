@@ -10,10 +10,11 @@ from app.data.market_provider import normalize_code
 from app.database.repository import clean
 from app.indicators.technical import calculate
 from app.portfolio.portfolio_service import load_position
-from app.portfolio.position import Buy, Position
+from app.portfolio.position import Buy, Position, DEFAULT_MAX_SHARES
 from app.analysis.risk_analyzer import risk_score
 from app.analysis.daily_report import render_reports
 from app.analysis.action_context import current_action_report
+from app.analysis.walkforward_shadow import load_shadow, summarize_shadow
 from app.system.resources import resource_snapshot
 import time
 from sqlalchemy import text
@@ -40,7 +41,12 @@ class SetupPayload(BaseModel):
     smtp_to: str = ""
     web_username: str = "admin"
     web_password: str = ""
-    max_shares: int = Field(default=1000, gt=0)
+    max_shares: int = Field(default=DEFAULT_MAX_SHARES, gt=0)
+    account_equity: float | None = Field(default=None, ge=0)
+    cash: float | None = Field(default=None, ge=0)
+    available_shares: int | None = Field(default=None, ge=0)
+    risk_per_trade_pct: float = Field(default=1.0, ge=0.1, le=5)
+    atr_stop_multiplier: float = Field(default=2.0, ge=1, le=5)
     buys: list[Buy] = Field(
         default_factory=lambda: [
             Buy(price=50, shares=200),
@@ -58,6 +64,11 @@ def _position_payload(payload: SetupPayload) -> dict:
     return {
         "code": "603283.SH",
         "max_shares": payload.max_shares,
+        "account_equity": payload.account_equity,
+        "cash": payload.cash,
+        "available_shares": payload.available_shares,
+        "risk_per_trade_pct": payload.risk_per_trade_pct,
+        "atr_stop_multiplier": payload.atr_stop_multiplier,
         "buys": [
             {"price": float(item.price), "shares": item.shares}
             for item in payload.buys
@@ -176,8 +187,12 @@ def history(code: str, request: Request) -> list[dict]:
 @router.get("/api/stock/{code}/technical")
 def technical(code: str, request: Request) -> list[dict]:
     maximum = request.app.state.settings.config.get("monitor", {}).get("max_bars_in_memory", 800)
+    repository = request.app.state.repository
+    frame = repository.adjusted_history(check(code))
+    if frame.empty:
+        frame = repository.history(check(code))
     return clean(
-        calculate(request.app.state.repository.history(check(code)))
+        calculate(frame)
         .tail(maximum)
         .to_dict("records")
     )
@@ -251,6 +266,11 @@ def action_guide(request: Request) -> dict:
     notifications["last_action_email"] = notifications.get("action")
     notifications["last_daily_email"] = notifications.get("daily")
     return {"decision": view["decision"], "monitor": state.monitor.status(), "notifications": notifications}
+
+
+@router.get("/api/walkforward")
+def walkforward(request: Request) -> dict:
+    return summarize_shadow(load_shadow(request.app.state.settings.root)) or {}
 
 
 @router.get("/api/triggers")

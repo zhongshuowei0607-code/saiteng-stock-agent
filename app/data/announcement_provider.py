@@ -2,10 +2,30 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from io import BytesIO
 from urllib.parse import urlparse, parse_qs
+import re
 import httpx
 from pypdf import PdfReader
 from .bounded import fetch
 from app.analysis.event_analyzer import classify
+
+
+def extract_eastmoney_text(url: str) -> str:
+    """Fetch the full announcement text behind an Eastmoney detail URL."""
+    match = re.search(r"/notices/detail/\d+/(AN\d+)\.html", url)
+    if not match:
+        return ""
+    with httpx.Client(timeout=10, follow_redirects=True) as client:
+        response = client.get(
+            "https://np-cnotice-stock.eastmoney.com/api/content/ann",
+            params={
+                "art_code": match.group(1),
+                "client_source": "web",
+                "page_index": 1,
+            },
+        )
+        response.raise_for_status()
+        data = (response.json() or {}).get("data") or {}
+    return str(data.get("notice_content") or "")
 
 
 def extract_pdf(url: str) -> str:
@@ -54,17 +74,24 @@ class AnnouncementProvider:
             rows = []
             if not frame.empty:
                 frame = frame.sort_values("公告日期", ascending=False)
-            for row in frame.to_dict("records")[:15]:
-                rows.append(
-                    {
-                        "title": str(row.get("公告标题", "")),
-                        "date": str(row.get("公告日期", ""))[:10],
-                        "source": "东方财富公告",
-                        "url": str(row.get("网址", "")),
-                        "raw_text": "",
-                        "text_status": "仅标题（东方财富）",
-                    }
-                )
+            for i, row in enumerate(frame.to_dict("records")[:15]):
+                item = {
+                    "title": str(row.get("公告标题", "")),
+                    "date": str(row.get("公告日期", ""))[:10],
+                    "source": "东方财富公告",
+                    "url": str(row.get("网址", "")),
+                    "raw_text": "",
+                    "text_status": "仅标题（东方财富）",
+                }
+                if i < 3:
+                    try:
+                        item["raw_text"] = extract_eastmoney_text(item["url"])[:50000]
+                    except Exception:
+                        item["text_status"] = "全文提取失败"
+                    else:
+                        if item["raw_text"]:
+                            item["text_status"] = "已提取（东方财富全文，最多5万字符）"
+                rows.append(item)
             if rows:
                 return classify(rows)
         except Exception as exc:

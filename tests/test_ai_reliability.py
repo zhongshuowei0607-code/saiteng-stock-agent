@@ -105,6 +105,16 @@ def test_timeout_recovers_without_reporting_data_insufficient():
     assert result["status"] == "generated" and result["attempts"] == 2
 
 
+def test_long_fact_decimals_are_rounded_for_readability():
+    report = {**valid_ai(), "summary": "浮亏-15.6716778653%，MA20为40.9615"}
+    result = explain(
+        Provider(report),
+        {"market": {"close": 34.89}, "portfolio": {"pnl_pct": -15.6716778653}, "technical": {"MA20": 40.9615}},
+    )
+    assert "-15.67%" in result["summary"]
+    assert "40.9615" in result["summary"]
+
+
 def test_small_hallucinated_financial_number_is_removed():
     report = {**valid_ai(), "summary": "预计到达99元"}
     result = explain(Provider(report), {"market": {"close": 43.7}})

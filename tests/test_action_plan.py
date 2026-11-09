@@ -41,12 +41,12 @@ def test_unconfirmed_add_or_unknown_risk_never_buys():
     assert not build_action_guide(facts, NOW)["actions"]
 
 
-def test_risk_and_support_override_a_buy_zone():
+def test_risk_warning_blocks_buys_and_support_break_sells():
     facts = report()
     facts["risk"]["score"] = 70
     guide = build_action_guide(facts, NOW)
-    assert [a["category"] for a in guide["actions"]] == ["risk"]
-    assert guide["actions"][0]["shares"] < facts["portfolio"]["shares"]
+    assert not guide["actions"]
+    assert any("风险评分" in item for item in guide["blockers"])
     facts["risk"]["score"] = 40
     facts["levels"]["support"][0]["price"] = 42.6
     assert [a["signal"] for a in build_action_guide(facts, NOW)["actions"]] == ["BREAK_SUPPORT"]
@@ -95,6 +95,51 @@ def test_sell_is_not_mistaken_for_known_available_inventory():
     action = build_action_guide(facts, NOW)["actions"][0]
     assert action["shares"] == 100 and action["shares_after"] == 400
     assert any("T+1" in text for text in action["checks"])
+
+
+def test_reentry_requires_two_closes_above_zone_floor():
+    facts = report()
+    facts["action_plan"] = {"add_confirmation_days": 2}
+    facts["recent_closes"] = [42.5, 42.4]
+    assert build_action_guide(facts, NOW)["actions"]
+    facts["recent_closes"] = [42.5, 41.9]
+    guide = build_action_guide(facts, NOW)
+    assert not guide["actions"]
+    assert any("连续 2 日" in item for item in guide["blockers"])
+
+
+def test_strong_bear_trend_blocks_adds_when_enabled():
+    facts = report()
+    facts["action_plan"] = {"block_add_trends": ["STRONG_BEAR"]}
+    facts["trend"] = {"medium": {"state": "STRONG_BEAR"}}
+    guide = build_action_guide(facts, NOW)
+    assert not guide["actions"]
+    assert any("中期趋势" in item for item in guide["blockers"])
+
+
+def test_stop_uses_strongest_support_not_nearest_pivot():
+    facts = report()
+    facts["risk"]["score"] = 40
+    facts["levels"] = {
+        "support": [
+            {"price": 42.8, "strength": 0.3},
+            {"price": 41.0, "strength": 0.8},
+        ],
+        "resistance": [],
+    }
+    guide = build_action_guide(facts, NOW)
+    assert guide["checkpoints"][0] == "支撑：41 元"
+    assert all(item["signal"] != "BREAK_SUPPORT" for item in guide["actions"])
+
+
+def test_control_change_announcement_blocks_adds():
+    facts = report()
+    facts["announcements"] = [
+        {"title": "关于股东部分股份质押及解除质押的公告", "categories": ["股权质押", "控制权变更"]}
+    ]
+    guide = build_action_guide(facts, NOW)
+    assert not guide["actions"]
+    assert any("控制权" in item for item in guide["blockers"])
 
 
 def test_empty_report_still_explains_next_steps():
